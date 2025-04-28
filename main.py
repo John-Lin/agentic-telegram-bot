@@ -1,0 +1,245 @@
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+import logging
+import os
+import json
+import asyncio
+
+from model import get_openai_model
+from model import get_openai_model_settings
+
+from agents import Agent
+from agents import Runner
+from agents.mcp import MCPServerStdio
+
+from dotenv import load_dotenv
+
+from telegram import ForceReply, Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+
+
+class Configuration:
+    """Manages configuration and environment variables for the MCP Telegram bot."""
+
+    def __init__(self) -> None:
+        """Initialize configuration with environment variables."""
+        self.load_env()
+        self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+
+    @staticmethod
+    def load_env() -> None:
+        """Load environment variables from .env file."""
+        load_dotenv()
+
+    @staticmethod
+    def load_config(file_path: str) -> Dict[str, Any]:
+        """Load server configuration from JSON file.
+
+        Args:
+            file_path: Path to the JSON configuration file.
+
+        Returns:
+            Dict containing server configuration.
+
+        Raises:
+            FileNotFoundError: If configuration file doesn't exist.
+            JSONDecodeError: If configuration file is invalid JSON.
+        """
+        with open(file_path, "r") as f:
+            return json.load(f)
+
+
+class OpenAIAgent:
+    """A wrapper for OpenAI Agent"""
+
+    def __init__(self, name: str, mcp_servers: Optional[List] = None) -> None:
+        self.current_agent = Agent(
+            name=name,
+            instructions="You are a helpful Telegram bot assistant.",
+            model=get_openai_model(),
+            model_settings=get_openai_model_settings(),
+            mcp_servers=(mcp_servers if mcp_servers is not None else []),
+        )
+        self.name = name
+
+    @classmethod
+    def from_dict(cls, name: str, config: Dict[str, Any]) -> OpenAIAgent:
+        mcp_servers = [
+            MCPServerStdio(
+                client_session_timeout_seconds=30.0,
+                params={
+                    "command": mcp_srv["command"],
+                    "args": mcp_srv["args"],
+                },
+            )
+            for mcp_srv in config.values()
+        ]
+        return cls(name, mcp_servers)
+
+    async def connect(self) -> None:
+        for mcp_server in self.current_agent.mcp_servers:
+            try:
+                await mcp_server.connect()
+                logging.info(f"Server {mcp_server.name} connecting")
+            except Exception as e:
+                logging.error(
+                    f"Error during connecting of server {mcp_server.name}: {e}"
+                )
+
+    async def run(self, messages: List) -> str:
+        """Run a workflow starting at the given agent."""
+        result = await Runner.run(self.current_agent, input=messages)
+        return result.final_output
+
+    async def cleanup(self) -> None:
+        """Clean up resources."""
+        # Clean up servers
+        for mcp_server in self.current_agent.mcp_servers:
+            try:
+                await mcp_server.cleanup()
+                logging.info(f"Server {mcp_server.name} cleaned up")
+            except Exception as e:
+                logging.error(f"Error during cleanup of server {mcp_server.name}: {e}")
+
+
+class TelegramBot:
+    def __init__(self, token: str, openai_agent: OpenAIAgent):
+        self.agent = openai_agent
+        self.conversations = {}  # Store conversation context per user
+        self.application = Application.builder().token(token).build()
+
+    async def start(self):
+        await self.application.initialize()
+        await self.application.start()
+        await self.application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        await self.initialize_agent()
+
+        # on different commands - answer in Telegram
+        self.application.add_handler(CommandHandler("start", self.start_command))
+        self.application.add_handler(CommandHandler("help", self.help_command))
+
+        # on non command i.e message - echo the message on Telegram
+        self.application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, self.echo)
+        )
+
+    async def cleanup(self) -> None:
+        """Clean up resources."""
+        try:
+            await self.application.updater.stop()
+            await self.application.stop()
+            await self.application.shutdown()
+            logging.info("Stopping bot application")
+        except Exception as e:
+            logging.error(f"Error steop bot application: {e}")
+
+    async def initialize_agent(self) -> None:
+        """Initialize all MCP servers and discover tools."""
+        try:
+            await self.agent.connect()
+            logging.info(f"Initialized agent {self.agent.name} with tools")
+        except Exception as e:
+            logging.error(f"Failed to initialize agent {self.agent.name}: {e}")
+
+    # Define a few command handlers. These usually take the two arguments update and
+    # context.
+    async def start_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Send a message when the command /start is issued."""
+        user = update.effective_user
+        await update.message.reply_html(
+            rf"Hi {user.mention_html()}!",
+            reply_markup=ForceReply(selective=True),
+        )
+
+    async def help_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Send a message when the command /help is issued."""
+        await update.message.reply_text("Help!")
+
+    async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Echo the user message."""
+        # Get or create conversation context
+        chat_id = update.message.chat_id
+        if chat_id not in self.conversations:
+            self.conversations[chat_id] = {"messages": []}
+
+        try:
+            messages = []
+
+            # Add user message to history
+            self.conversations[chat_id]["messages"].append(
+                {"role": "user", "content": update.message.text}
+            )
+
+            # Add conversation history (last 5 messages)
+            if "messages" in self.conversations[chat_id]:
+                messages.extend(self.conversations[chat_id]["messages"][-5:])
+
+            logging.debug(messages)
+            # Get LLM response
+            agent_resp = await self.agent.run(messages)
+
+            # Add assistant response to conversation history
+            self.conversations[chat_id]["messages"].append(
+                {"role": "assistant", "content": agent_resp}
+            )
+            await update.message.reply_text(agent_resp)
+        except Exception as e:
+            error_message = f"I'm sorry, I encountered an error: {str(e)}"
+            logging.error(f"Error processing message: {e}", exc_info=True)
+            await update.message.reply_text(error_message)
+
+
+async def main() -> None:
+    # Enable logging
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
+    )
+    # set higher logging level for httpx to avoid all GET and POST requests being logged
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    """Initialize and run the Telegram bot."""
+    config = Configuration()
+
+    server_config = config.load_config("servers_config.json")
+    openai_agent = OpenAIAgent.from_dict(
+        "Telegram Bot Agent", server_config["mcpServers"]
+    )
+
+    # Initialize the OpenAI agents with mcp servers
+    # openai_agent = OpenAIAgent("Telegram Bot Agent")
+
+    tgbot = TelegramBot(
+        config.telegram_bot_token,
+        openai_agent,
+    )
+
+    try:
+        await tgbot.start()
+        # Keep the main task alive until interrupted
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        logging.info("Shutting down...")
+    except Exception as e:
+        logging.error(f"Error: {e}")
+    finally:
+        await tgbot.cleanup()
+        await openai_agent.cleanup()
+
+
+if __name__ == "__main__":
+    # main()
+    asyncio.run(main())
