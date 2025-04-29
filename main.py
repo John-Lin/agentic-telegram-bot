@@ -1,28 +1,25 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import asyncio
+import json
 import logging
 import os
-import json
-import asyncio
-
-from model import get_openai_model
-from model import get_openai_model_settings
+from typing import Any
 
 from agents import Agent
 from agents import Runner
 from agents.mcp import MCPServerStdio
-
 from dotenv import load_dotenv
+from telegram import ForceReply
+from telegram import Update
+from telegram.ext import Application
+from telegram.ext import CommandHandler
+from telegram.ext import ContextTypes
+from telegram.ext import MessageHandler
+from telegram.ext import filters
 
-from telegram import ForceReply, Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    filters,
-)
+from model import get_openai_model
+from model import get_openai_model_settings
 
 
 class Configuration:
@@ -40,7 +37,7 @@ class Configuration:
         load_dotenv()
 
     @staticmethod
-    def load_config(file_path: str) -> Dict[str, Any]:
+    def load_config(file_path: str) -> dict[str, Any]:
         """Load server configuration from JSON file.
 
         Args:
@@ -53,14 +50,14 @@ class Configuration:
             FileNotFoundError: If configuration file doesn't exist.
             JSONDecodeError: If configuration file is invalid JSON.
         """
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             return json.load(f)
 
 
 class OpenAIAgent:
     """A wrapper for OpenAI Agent"""
 
-    def __init__(self, name: str, mcp_servers: Optional[List] = None) -> None:
+    def __init__(self, name: str, mcp_servers: list | None = None) -> None:
         self.current_agent = Agent(
             name=name,
             instructions="You are a helpful Telegram bot assistant.",
@@ -71,7 +68,7 @@ class OpenAIAgent:
         self.name = name
 
     @classmethod
-    def from_dict(cls, name: str, config: Dict[str, Any]) -> OpenAIAgent:
+    def from_dict(cls, name: str, config: dict[str, Any]) -> OpenAIAgent:
         mcp_servers = [
             MCPServerStdio(
                 client_session_timeout_seconds=30.0,
@@ -91,11 +88,9 @@ class OpenAIAgent:
                 await mcp_server.connect()
                 logging.info(f"Server {mcp_server.name} connecting")
             except Exception as e:
-                logging.error(
-                    f"Error during connecting of server {mcp_server.name}: {e}"
-                )
+                logging.error(f"Error during connecting of server {mcp_server.name}: {e}")
 
-    async def run(self, messages: List) -> str:
+    async def run(self, messages: list) -> str:
         """Run a workflow starting at the given agent."""
         result = await Runner.run(self.current_agent, input=messages)
         return result.final_output
@@ -112,9 +107,13 @@ class OpenAIAgent:
 
 
 class TelegramMCPBot:
-    def __init__(self, token: str, openai_agent: OpenAIAgent) -> None:
+    def __init__(self, token: str | None, openai_agent: OpenAIAgent) -> None:
         self.agent = openai_agent
-        self.conversations = {}  # Store conversation context per user
+        self.conversations: dict[
+            int, dict[str, list[dict[str, str | Any | None]]]
+        ] = {}  # Store conversation context per channel
+        if token is None:
+            raise ValueError("TELEGRAM_TOKEN is not set")
         self.application = Application.builder().token(token).build()
 
     async def run(self) -> None:
@@ -131,9 +130,7 @@ class TelegramMCPBot:
         self.application.add_handler(CommandHandler("help", self.help_command))
 
         # on non command i.e message - handle the message on Telegram
-        self.application.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
-        )
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
     async def cleanup(self) -> None:
         """Clean up resources."""
@@ -155,9 +152,7 @@ class TelegramMCPBot:
 
     # Define a few command handlers. These usually take the two arguments update and
     # context.
-    async def start_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a message when the command /start is issued."""
         user = update.effective_user
         await update.message.reply_html(
@@ -165,20 +160,14 @@ class TelegramMCPBot:
             reply_markup=ForceReply(selective=True),
         )
 
-    async def help_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a message when the command /help is issued."""
         await update.message.reply_text("Help!")
 
-    async def handle_message(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._procress_message(update, context)
 
-    async def _procress_message(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def _procress_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Process incoming messages and generate responses."""
         # Get or create conversation context
         chat_id = update.message.chat_id
@@ -190,9 +179,7 @@ class TelegramMCPBot:
             messages = []
 
             # Add user message to history
-            self.conversations[chat_id]["messages"].append(
-                {"role": "user", "content": update.message.text}
-            )
+            self.conversations[chat_id]["messages"].append({"role": "user", "content": update.message.text})
 
             # Add conversation history (last 5 messages)
             if "messages" in self.conversations[chat_id]:
@@ -203,9 +190,7 @@ class TelegramMCPBot:
             agent_resp = await self.agent.run(messages)
 
             # Add assistant response to conversation history
-            self.conversations[chat_id]["messages"].append(
-                {"role": "assistant", "content": agent_resp}
-            )
+            self.conversations[chat_id]["messages"].append({"role": "assistant", "content": agent_resp})
             await update.message.reply_text(agent_resp)
         except Exception as e:
             error_message = f"I'm sorry, I encountered an error: {str(e)}"
@@ -219,14 +204,12 @@ async def main() -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=logging.INFO,
     )
-    logger = logging.getLogger(__name__)
+    logging.getLogger(__name__)
     """Initialize and run the Telegram bot."""
     config = Configuration()
 
     server_config = config.load_config("servers_config.json")
-    openai_agent = OpenAIAgent.from_dict(
-        "Telegram Bot Agent", server_config["mcpServers"]
-    )
+    openai_agent = OpenAIAgent.from_dict("Telegram Bot Agent", server_config["mcpServers"])
 
     # Initialize the OpenAI agents with mcp servers
     # openai_agent = OpenAIAgent("Telegram Bot Agent")

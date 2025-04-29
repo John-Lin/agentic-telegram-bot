@@ -1,9 +1,11 @@
 import os
 from functools import cache
-from agents import OpenAIChatCompletionsModel
-from openai import AsyncOpenAI
-from agents import set_tracing_disabled
+
 from agents import ModelSettings
+from agents import OpenAIChatCompletionsModel
+from agents import set_tracing_disabled
+from openai import AsyncAzureOpenAI
+from openai import AsyncOpenAI
 
 
 @cache
@@ -14,12 +16,15 @@ def get_openai_model() -> OpenAIChatCompletionsModel:
 
 
 @cache
-def get_openai_client() -> AsyncOpenAI:
+def get_openai_client() -> AsyncOpenAI | AsyncAzureOpenAI:
     chatai_api_key = os.getenv("CHATAI_API_KEY")
     openai_proxy_base_url = os.getenv("OPENAI_PROXY_BASE_URL")
     if chatai_api_key:
         set_tracing_disabled(True)
         return AsyncOpenAI(base_url=openai_proxy_base_url, api_key=chatai_api_key)
+    elif os.getenv("AZURE_OPENAI_API_KEY"):
+        set_tracing_disabled(True)
+        return AsyncAzureOpenAI()
     else:
         return AsyncOpenAI()
 
