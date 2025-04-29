@@ -78,6 +78,7 @@ class OpenAIAgent:
                 params={
                     "command": mcp_srv["command"],
                     "args": mcp_srv["args"],
+                    "env": mcp_srv.get("env", {}),
                 },
             )
             for mcp_srv in config.values()
@@ -110,13 +111,16 @@ class OpenAIAgent:
                 logging.error(f"Error during cleanup of server {mcp_server.name}: {e}")
 
 
-class TelegramBot:
-    def __init__(self, token: str, openai_agent: OpenAIAgent):
+class TelegramMCPBot:
+    def __init__(self, token: str, openai_agent: OpenAIAgent) -> None:
         self.agent = openai_agent
         self.conversations = {}  # Store conversation context per user
         self.application = Application.builder().token(token).build()
 
-    async def start(self):
+    async def run(self) -> None:
+        # https://github.com/python-telegram-bot/python-telegram-bot/discussions/3310
+        # https://docs.python-telegram-bot.org/en/stable/telegram.ext.application.html#telegram.ext.Application.run_polling
+        # inits bot, update, persistence
         await self.application.initialize()
         await self.application.start()
         await self.application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
@@ -126,9 +130,9 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
 
-        # on non command i.e message - echo the message on Telegram
+        # on non command i.e message - handle the message on Telegram
         self.application.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self.echo)
+            MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
 
     async def cleanup(self) -> None:
@@ -167,10 +171,19 @@ class TelegramBot:
         """Send a message when the command /help is issued."""
         await update.message.reply_text("Help!")
 
-    async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Echo the user message."""
+    async def handle_message(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        await self._procress_message(update, context)
+        pass
+
+    async def _procress_message(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Process incoming messages and generate responses."""
         # Get or create conversation context
         chat_id = update.message.chat_id
+
         if chat_id not in self.conversations:
             self.conversations[chat_id] = {"messages": []}
 
@@ -202,14 +215,12 @@ class TelegramBot:
 
 
 async def main() -> None:
-    # Enable logging
+    # Configure logging
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=logging.INFO,
     )
-    # set higher logging level for httpx to avoid all GET and POST requests being logged
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-
+    logger = logging.getLogger(__name__)
     """Initialize and run the Telegram bot."""
     config = Configuration()
 
@@ -221,13 +232,13 @@ async def main() -> None:
     # Initialize the OpenAI agents with mcp servers
     # openai_agent = OpenAIAgent("Telegram Bot Agent")
 
-    tgbot = TelegramBot(
+    tg_bot = TelegramMCPBot(
         config.telegram_bot_token,
         openai_agent,
     )
 
     try:
-        await tgbot.start()
+        await tg_bot.run()
         # Keep the main task alive until interrupted
         while True:
             await asyncio.sleep(1)
@@ -236,10 +247,9 @@ async def main() -> None:
     except Exception as e:
         logging.error(f"Error: {e}")
     finally:
-        await tgbot.cleanup()
+        await tg_bot.cleanup()
         await openai_agent.cleanup()
 
 
 if __name__ == "__main__":
-    # main()
     asyncio.run(main())
