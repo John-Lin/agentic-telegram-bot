@@ -175,7 +175,6 @@ class TelegramMCPBot:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         await self._procress_message(update, context)
-        pass
 
     async def _procress_message(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
