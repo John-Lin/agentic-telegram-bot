@@ -6,8 +6,10 @@ import logging
 import os
 from typing import Any
 
+from agentize.prompts.summary import scrape_summarize
 from agents import Agent
 from agents import Runner
+from agents import function_tool
 from agents.mcp import MCPServerStdio
 from dotenv import find_dotenv
 from dotenv import load_dotenv
@@ -64,6 +66,7 @@ class OpenAIAgent:
             instructions="You are a helpful Telegram bot assistant.",
             model=get_openai_model(),
             model_settings=get_openai_model_settings(),
+            tools=[function_tool(scrape_summarize)],
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
         )
         self.name = name
@@ -186,7 +189,10 @@ class TelegramMCPBot:
             if "messages" in self.conversations[chat_id]:
                 messages.extend(self.conversations[chat_id]["messages"][-5:])
 
-            logging.debug(messages)
+            logging.info("----------------------------------------------------------")
+            logging.info(self.conversations)
+            logging.info("----------------------------------------------------------")
+
             # Get LLM response
             agent_resp = await self.agent.run(messages)
 
