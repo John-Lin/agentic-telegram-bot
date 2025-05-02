@@ -27,9 +27,7 @@ def get_openai_client() -> AsyncOpenAI | AsyncAzureOpenAI:
     elif os.getenv("AZURE_OPENAI_API_KEY"):
         logging.info("Using Azure OpenAI API key")
         set_tracing_disabled(True)
-        return AsyncAzureOpenAI(
-            api_version=os.getenv("OPENAI_API_VERSION", "2023-05-15")
-        )
+        return AsyncAzureOpenAI(api_version=os.getenv("OPENAI_API_VERSION", "2023-05-15"))
     else:
         return AsyncOpenAI()
 
@@ -37,7 +35,5 @@ def get_openai_client() -> AsyncOpenAI | AsyncAzureOpenAI:
 @cache
 def get_openai_model_settings():
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    temperature = (
-        None if model == "o3-mini" else float(os.getenv("OPENAI_TEMPERATURE", 0.0))
-    )
+    temperature = None if model == "o3-mini" else float(os.getenv("OPENAI_TEMPERATURE", 0.0))
     return ModelSettings(temperature=temperature)
