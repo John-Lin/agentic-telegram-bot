@@ -25,7 +25,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agentize", specifier = ">=0.0.4" },
+    { name = "agentize", specifier = ">=0.0.6" },
     { name = "mcp", specifier = ">=1.6.0" },
     { name = "openai-agents", specifier = ">=0.0.13" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
@@ -43,7 +43,7 @@ dev = [
 
 [[package]]
 name = "agentize"
-version = "0.0.4"
+version = "0.0.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "firecrawl-py" },
@@ -51,7 +51,7 @@ dependencies = [
     { name = "openai-agents" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/21/6db6b07e0c96cc34316d3874081b3349825b058f66c83ac9499829e0e937/agentize-0.0.4-py3-none-any.whl", hash = "sha256:f4a06e124710e14b67f71c73f07e5f28abb5b982d104824edcea2f6aacc9c198", size = 7950, upload-time = "2025-05-03T05:45:33.424Z" },
+    { url = "https://files.pythonhosted.org/packages/53/db/baedac6de47d71ba663802690a5344a319b4af9767cc953b557d04bf3dd7/agentize-0.0.6-py3-none-any.whl", hash = "sha256:6597cd1bb1ea767e8905a94edaaf16fb4b0ff7141dbf2c97a3716aa7ac51ded1", size = 7752, upload-time = "2025-05-03T05:57:42.021Z" },
 ]
 
 [[package]]
