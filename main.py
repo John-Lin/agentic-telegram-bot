@@ -6,6 +6,8 @@ import logging
 import os
 from typing import Any
 
+from agentize.agents.summary import get_summary_agent
+from agentize.crawler.firecrawl import scrape_tool
 from agents import Agent
 from agents import Runner
 from agents.mcp import MCPServerStdio
@@ -59,11 +61,14 @@ class OpenAIAgent:
     """A wrapper for OpenAI Agent"""
 
     def __init__(self, name: str, mcp_servers: list | None = None) -> None:
-        self.current_agent = Agent(
+        self.summary_agent = get_summary_agent(lang="台灣中文", length=1_000)
+        self.main_agent = Agent(
             name=name,
-            instructions="You are a helpful Telegram bot assistant.",
+            instructions="You are a helpful assistant. Handoff to the summary agent when you need to summarize.",
             model=get_openai_model(),
             model_settings=get_openai_model_settings(),
+            tools=[scrape_tool],
+            handoffs=[self.summary_agent],
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
         )
         self.name = name
@@ -84,7 +89,7 @@ class OpenAIAgent:
         return cls(name, mcp_servers)
 
     async def connect(self) -> None:
-        for mcp_server in self.current_agent.mcp_servers:
+        for mcp_server in self.main_agent.mcp_servers:
             try:
                 await mcp_server.connect()
                 logging.info(f"Server {mcp_server.name} connecting")
@@ -93,13 +98,13 @@ class OpenAIAgent:
 
     async def run(self, messages: list) -> str:
         """Run a workflow starting at the given agent."""
-        result = await Runner.run(self.current_agent, input=messages)
-        return result.final_output
+        result = await Runner.run(self.main_agent, input=messages)
+        return str(result.final_output)
 
     async def cleanup(self) -> None:
         """Clean up resources."""
         # Clean up servers
-        for mcp_server in self.current_agent.mcp_servers:
+        for mcp_server in self.main_agent.mcp_servers:
             try:
                 await mcp_server.cleanup()
                 logging.info(f"Server {mcp_server.name} cleaned up")
@@ -186,9 +191,15 @@ class TelegramMCPBot:
             if "messages" in self.conversations[chat_id]:
                 messages.extend(self.conversations[chat_id]["messages"][-5:])
 
-            logging.debug(messages)
+            logging.info("---------------------- History ---------------------------")
+            logging.info(self.conversations)
+            logging.info("----------------------------------------------------------")
+
             # Get LLM response
             agent_resp = await self.agent.run(messages)
+            logging.info("---------------- agent response --------------------------")
+            logging.info(agent_resp)
+            logging.info("----------------------------------------------------------")
 
             # Add assistant response to conversation history
             self.conversations[chat_id]["messages"].append({"role": "assistant", "content": agent_resp})
