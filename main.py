@@ -10,6 +10,8 @@ from agentize.agents.summary import get_summary_agent
 from agentize.crawler.firecrawl import map_tool
 from agentize.crawler.firecrawl import scrape_tool
 from agentize.crawler.firecrawl import search_tool
+from agentize.model import get_openai_model
+from agentize.model import get_openai_model_settings
 from agents import Agent
 from agents import Runner
 from agents.mcp import MCPServerStdio
@@ -22,9 +24,6 @@ from telegram.ext import CommandHandler
 from telegram.ext import ContextTypes
 from telegram.ext import MessageHandler
 from telegram.ext import filters
-
-from model import get_openai_model
-from model import get_openai_model_settings
 
 
 class Configuration:
