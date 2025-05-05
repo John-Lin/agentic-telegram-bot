@@ -12,6 +12,7 @@ from agentize.crawler.firecrawl import scrape_tool
 from agentize.crawler.firecrawl import search_tool
 from agentize.model import get_openai_model
 from agentize.model import get_openai_model_settings
+from agentize.utils import configure_langfuse
 from agents import Agent
 from agents import Runner
 from agents.mcp import MCPServerStdio
@@ -62,6 +63,7 @@ class OpenAIAgent:
     """A wrapper for OpenAI Agent"""
 
     def __init__(self, name: str, mcp_servers: list | None = None) -> None:
+        configure_langfuse("Telegram Bot")
         self.summary_agent = get_summary_agent(lang="台灣中文", length=1_000)
         self.main_agent = Agent(
             name=name,
