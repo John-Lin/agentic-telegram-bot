@@ -7,7 +7,9 @@ import os
 from typing import Any
 
 from agentize.agents.summary import get_summary_agent
+from agentize.crawler.firecrawl import map_tool
 from agentize.crawler.firecrawl import scrape_tool
+from agentize.crawler.firecrawl import search_tool
 from agents import Agent
 from agents import Runner
 from agents.mcp import MCPServerStdio
@@ -67,7 +69,7 @@ class OpenAIAgent:
             instructions="You are a helpful assistant. Handoff to the summary agent when you need to summarize.",
             model=get_openai_model(),
             model_settings=get_openai_model_settings(),
-            tools=[scrape_tool],
+            tools=[scrape_tool, map_tool, search_tool],
             handoffs=[self.summary_agent],
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
         )
