@@ -7,11 +7,12 @@ import os
 from typing import Any
 
 from agentize.agents.summary import get_summary_agent
-from agentize.crawler.firecrawl import map_tool
-from agentize.crawler.firecrawl import scrape_tool
-from agentize.crawler.firecrawl import search_tool
 from agentize.model import get_openai_model
 from agentize.model import get_openai_model_settings
+from agentize.tools.firecrawl import map_tool
+from agentize.tools.firecrawl import scrape_tool
+from agentize.tools.firecrawl import search_tool
+from agentize.tools.telegragh import publish_page_md
 from agentize.utils import configure_langfuse
 from agents import Agent
 from agents import Runner
@@ -70,7 +71,7 @@ class OpenAIAgent:
             instructions="You are a helpful assistant. Handoff to the summary agent when you need to summarize.",
             model=get_openai_model(),
             model_settings=get_openai_model_settings(),
-            tools=[scrape_tool, map_tool, search_tool],
+            tools=[scrape_tool, map_tool, search_tool, publish_page_md],
             handoffs=[self.summary_agent],
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
         )
@@ -217,7 +218,7 @@ async def main() -> None:
     # Configure logging
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        level=logging.INFO,
+        level=logging.DEBUG,
     )
     logging.getLogger(__name__)
     """Initialize and run the Telegram bot."""
