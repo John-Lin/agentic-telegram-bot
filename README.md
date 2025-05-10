@@ -4,7 +4,20 @@ A simple Telegram bot that uses the OpenAI Agents SDK to interact with the Model
 ## Docker
 
 ```
+# Build the Docker image
 docker build -t agentic-telegram-bot .
+
+# Run the Docker container
+docker run -d \
+  --name agentic-telegram-bot \
+  -e BOT_USERNAME="" \
+  -e TELEGRAM_BOT_TOKEN="" \
+  -e OPENAI_API_KEY="" \
+  -e OPENAI_MODEL="gpt-4.1" \
+  -e FIRECRAWL_API_KEY="" \
+  -e LANGFUSE_PUBLIC_KEY="" \
+  -e LANGFUSE_SECRET_KEY="" \
+  -e LANGFUSE_HOST="" agentic-telegram-bot
 ```
 
 ## Install Dependencies
@@ -58,5 +71,5 @@ AZURE_OPENAI_API_VERSION="2025-03-01-preview"
 ## Running the Bot
 
 ```bash
-uv run main.py
+uv run bot
 ```
