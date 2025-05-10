@@ -12,6 +12,13 @@ dependencies = [
     "python-telegram-bot>=22.0",
 ]
 
+[project.scripts]
+bot = "app:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [dependency-groups]
 dev = [
     "mypy>=1.13.0",
@@ -53,3 +60,6 @@ log_file = "logs/pytest.log"
 log_file_level = "INFO"
 log_format = "%(asctime)s %(levelname)s %(message)s"
 log_date_format = "%Y-%m-%d %H:%M:%S"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bot"]
