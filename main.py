@@ -8,7 +8,6 @@ from typing import Any
 
 from agentize.agents.summary import get_summary_agent
 from agentize.model import get_openai_model
-from agentize.model import get_openai_model_settings
 from agentize.tools.firecrawl import map_tool
 from agentize.tools.firecrawl import search_tool
 from agentize.tools.markitdown import markitdown_scrape_tool
@@ -19,7 +18,6 @@ from agents import Runner
 from agents.mcp import MCPServerStdio
 from dotenv import find_dotenv
 from dotenv import load_dotenv
-from telegram import ForceReply
 from telegram import Update
 from telegram.ext import Application
 from telegram.ext import CommandHandler
@@ -36,6 +34,7 @@ class Configuration:
         self.load_env()
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.bot_username = os.getenv("BOT_USERNAME")
 
     @staticmethod
     def load_env() -> None:
@@ -70,7 +69,6 @@ class OpenAIAgent:
             name=name,
             instructions="You are a helpful assistant. Handoff to the summary agent when you need to summarize.",
             model=get_openai_model(),
-            model_settings=get_openai_model_settings(),
             tools=[markitdown_scrape_tool, map_tool, search_tool, publish_page],
             handoffs=[self.summary_agent],
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
@@ -117,13 +115,18 @@ class OpenAIAgent:
 
 
 class TelegramMCPBot:
-    def __init__(self, token: str | None, openai_agent: OpenAIAgent) -> None:
+    def __init__(self, token: str | None, bot_username: str | None, openai_agent: OpenAIAgent) -> None:
+        if bot_username is None:
+            raise ValueError("BOT_USERNAME is not set")
+
+        if token is None:
+            raise ValueError("TELEGRAM_TOKEN is not set")
+
+        self.bot_username = bot_username
         self.agent = openai_agent
         self.conversations: dict[
             int, dict[str, list[dict[str, str | Any | None]]]
         ] = {}  # Store conversation context per channel
-        if token is None:
-            raise ValueError("TELEGRAM_TOKEN is not set")
         self.application = Application.builder().token(token).build()
 
     async def run(self) -> None:
@@ -136,11 +139,12 @@ class TelegramMCPBot:
         await self.initialize_agent()
 
         # on different commands - answer in Telegram
-        self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
 
         # on non command i.e message - handle the message on Telegram
-        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        # Add a message handler to handle replies
+        self.application.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, self.handle_message))
+        self.application.add_handler(MessageHandler(filters.Mention(self.bot_username), self.handle_message))
 
     async def cleanup(self) -> None:
         """Clean up resources."""
@@ -159,16 +163,6 @@ class TelegramMCPBot:
             logging.info(f"Initialized agent {self.agent.name} with tools")
         except Exception as e:
             logging.error(f"Failed to initialize agent {self.agent.name}: {e}")
-
-    # Define a few command handlers. These usually take the two arguments update and
-    # context.
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Send a message when the command /start is issued."""
-        user = update.effective_user
-        await update.message.reply_html(
-            rf"Hi {user.mention_html()}!",
-            reply_markup=ForceReply(selective=True),
-        )
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a message when the command /help is issued."""
@@ -218,7 +212,7 @@ async def main() -> None:
     # Configure logging
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        level=logging.DEBUG,
+        level=logging.INFO,
     )
     logging.getLogger(__name__)
     """Initialize and run the Telegram bot."""
@@ -232,6 +226,7 @@ async def main() -> None:
 
     tg_bot = TelegramMCPBot(
         config.telegram_bot_token,
+        config.bot_username,
         openai_agent,
     )
 

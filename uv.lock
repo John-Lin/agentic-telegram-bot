@@ -29,7 +29,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agentize", extras = ["langfuse"], specifier = ">=0.0.14" },
+    { name = "agentize", extras = ["langfuse"], specifier = ">=0.0.16" },
     { name = "mcp", specifier = ">=1.6.0" },
     { name = "openai-agents", specifier = ">=0.0.13" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
@@ -47,7 +47,7 @@ dev = [
 
 [[package]]
 name = "agentize"
-version = "0.0.14"
+version = "0.0.16"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "firecrawl-py" },
@@ -60,7 +60,7 @@ dependencies = [
     { name = "your-telegraph" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b9/de/99c648e7c3226bcbf54a5f2913b10e1009dd867eb14e2546995e63e82998/agentize-0.0.14-py3-none-any.whl", hash = "sha256:9a529a922f2820e61b5d33d4f821e5968896e4389ae8950b25e599358bb23637", size = 13738, upload-time = "2025-05-09T00:08:27.034Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/e6/aca22ea0f97a09f531c90fcfe907fdfe2adcf805ab302bc0815a20b98ccd/agentize-0.0.16-py3-none-any.whl", hash = "sha256:a1f11f6aacaca9f0c3c9d2dc37a27c14edb55c55e472409c788cb8b3170af038", size = 14129, upload-time = "2025-05-09T17:08:02.96Z" },
 ]
 
 [package.optional-dependencies]
