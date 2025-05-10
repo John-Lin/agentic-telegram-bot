@@ -9,15 +9,11 @@ docker build -t agentic-telegram-bot .
 
 # Run the Docker container
 docker run -d \
-  --name agentic-telegram-bot \
+  --name telegent \
   -e BOT_USERNAME="" \
   -e TELEGRAM_BOT_TOKEN="" \
   -e OPENAI_API_KEY="" \
-  -e OPENAI_MODEL="gpt-4.1" \
-  -e FIRECRAWL_API_KEY="" \
-  -e LANGFUSE_PUBLIC_KEY="" \
-  -e LANGFUSE_SECRET_KEY="" \
-  -e LANGFUSE_HOST="" agentic-telegram-bot
+  -e OPENAI_MODEL="gpt-4.1" johnlin/agentic-telegram-bot
 ```
 
 ## Install Dependencies
