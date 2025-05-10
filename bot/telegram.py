@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from telegram import ReplyParameters
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import Application
 from telegram.ext import CommandHandler
 from telegram.ext import ContextTypes
@@ -34,6 +36,7 @@ class TelegramMCPBot:
         # inits bot, update, persistence
         await self.application.initialize()
         await self.application.start()
+        assert self.application.updater is not None, "Updater is None"
         await self.application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
         await self.initialize_agent()
 
@@ -48,6 +51,7 @@ class TelegramMCPBot:
     async def cleanup(self) -> None:
         """Clean up resources."""
         try:
+            assert self.application.updater is not None
             await self.application.updater.stop()
             await self.application.stop()
             await self.application.shutdown()
@@ -65,6 +69,9 @@ class TelegramMCPBot:
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a message when the command /help is issued."""
+        if update.message is None:
+            return
+        # chat_id = update.message.chat_id
         await update.message.reply_text("Help!")
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -72,9 +79,14 @@ class TelegramMCPBot:
 
     async def _procress_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Process incoming messages and generate responses."""
-        # Get or create conversation context
+
+        if update.message is None or update.effective_chat is None:
+            logging.warning("Update has no message or chat — ignored")
+            return
+
         chat_id = update.message.chat_id
 
+        # Get or create conversation context
         if chat_id not in self.conversations:
             self.conversations[chat_id] = {"messages": []}
 
@@ -100,7 +112,16 @@ class TelegramMCPBot:
 
             # Add assistant response to conversation history
             self.conversations[chat_id]["messages"].append({"role": "assistant", "content": agent_resp})
-            await update.message.reply_text(agent_resp)
+            if len(agent_resp) < 200:
+                await update.message.reply_text(text=agent_resp, do_quote=True)
+            else:
+                # Send the response in a quote block
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"<blockquote expandable>{agent_resp}</blockquote>",
+                    parse_mode=ParseMode.HTML,
+                    reply_parameters=ReplyParameters(message_id=update.message.message_id),
+                )
         except Exception as e:
             error_message = f"I'm sorry, I encountered an error: {str(e)}"
             logging.error(f"Error processing message: {e}", exc_info=True)
