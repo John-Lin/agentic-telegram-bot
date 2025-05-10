@@ -26,7 +26,7 @@ class TelegramMCPBot:
         self.bot_username = bot_username
         self.agent = openai_agent
         self.conversations: dict[
-            int, dict[str, list[dict[str, str | Any | None]]]
+            str, dict[str, list[dict[str, str | Any | None]]]
         ] = {}  # Store conversation context per channel
         self.application = Application.builder().token(token).build()
 
@@ -84,41 +84,37 @@ class TelegramMCPBot:
             logging.warning("Update has no message or chat — ignored")
             return
 
-        chat_id = update.message.chat_id
+        chat_id = str(update.message.chat_id)
+        assert update.message.text is not None
+        user_text = update.message.text
 
         # Get or create conversation context
         if chat_id not in self.conversations:
             self.conversations[chat_id] = {"messages": []}
 
+        messages = []
+
+        # Add user message to history
+        self.conversations[chat_id]["messages"].append({"role": "user", "content": user_text})
+
+        # Add conversation history (last 5 messages)
+        if "messages" in self.conversations[chat_id]:
+            messages.extend(self.conversations[chat_id]["messages"][-5:])
+
+        logging.debug(self.conversations)
+
         try:
-            messages = []
-
-            # Add user message to history
-            self.conversations[chat_id]["messages"].append({"role": "user", "content": update.message.text})
-
-            # Add conversation history (last 5 messages)
-            if "messages" in self.conversations[chat_id]:
-                messages.extend(self.conversations[chat_id]["messages"][-5:])
-
-            logging.info("---------------------- History ---------------------------")
-            logging.info(self.conversations)
-            logging.info("----------------------------------------------------------")
-
             # Get LLM response
-            agent_resp = await self.agent.run(messages)
-            logging.info("---------------- agent response --------------------------")
-            logging.info(agent_resp)
-            logging.info("----------------------------------------------------------")
-
+            asst_text = await self.agent.run(user_text)
             # Add assistant response to conversation history
-            self.conversations[chat_id]["messages"].append({"role": "assistant", "content": agent_resp})
-            if len(agent_resp) < 200:
-                await update.message.reply_text(text=agent_resp, do_quote=True)
+            self.conversations[chat_id]["messages"].append({"role": "assistant", "content": asst_text})
+            if len(asst_text) < 200:
+                await update.message.reply_text(text=asst_text)
             else:
                 # Send the response in a quote block
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"<blockquote expandable>{agent_resp}</blockquote>",
+                    text=f"<blockquote expandable>{asst_text}</blockquote>",
                     parse_mode=ParseMode.HTML,
                     reply_parameters=ReplyParameters(message_id=update.message.message_id),
                 )
