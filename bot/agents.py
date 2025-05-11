@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from pprint import pformat
 from typing import Any
 
 from agentize.agents.summary import get_summary_agent
@@ -72,8 +71,6 @@ class OpenAIAgent:
         self.messages = result.to_input_list()
         # Add conversation history (last 5 messages)
         self.messages = self.messages[-5:]
-        # agent memory
-        logging.info("\n" + pformat(self.messages))
         return str(result.final_output)
 
     async def cleanup(self) -> None:
