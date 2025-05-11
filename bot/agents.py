@@ -5,10 +5,10 @@ from typing import Any
 
 from agentize.agents.summary import get_summary_agent
 from agentize.model import get_openai_model
+from agentize.tools.duckduckgo import duckduckgo_search
 from agentize.tools.firecrawl import map_tool
-from agentize.tools.firecrawl import search_tool
 from agentize.tools.markitdown import markitdown_scrape_tool
-from agentize.tools.telegragh import publish_page
+from agentize.tools.telegraph import publish_page
 from agentize.utils import configure_langfuse
 from agents import Agent
 from agents import Runner
@@ -29,7 +29,7 @@ class OpenAIAgent:
             name=name,
             instructions="You are a helpful assistant. Handoff to the summary agent when you need to summarize.",
             model=get_openai_model(),
-            tools=[markitdown_scrape_tool, map_tool, search_tool, publish_page],
+            tools=[markitdown_scrape_tool, map_tool, duckduckgo_search, publish_page],
             handoffs=[self.summary_agent],
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
         )
