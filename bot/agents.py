@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pprint import pformat
 from typing import Any
 
 from agentize.agents.summary import get_summary_agent
@@ -12,6 +13,7 @@ from agentize.tools.telegragh import publish_page
 from agentize.utils import configure_langfuse
 from agents import Agent
 from agents import Runner
+from agents import TResponseInputItem
 from agents.mcp import MCPServerStdio
 
 
@@ -20,7 +22,10 @@ class OpenAIAgent:
 
     def __init__(self, name: str, mcp_servers: list | None = None) -> None:
         configure_langfuse("Telegram Bot")
-        self.summary_agent = get_summary_agent(lang="台灣中文", length=1_000)
+        self.summary_agent = get_summary_agent(
+            lang="台灣中文",
+            length=1_000,
+        )
         self.main_agent = Agent(
             name=name,
             instructions="You are a helpful assistant. Handoff to the summary agent when you need to summarize.",
@@ -30,6 +35,7 @@ class OpenAIAgent:
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
         )
         self.name = name
+        self.messages: list[TResponseInputItem] = []
 
     @classmethod
     def from_dict(cls, name: str, config: dict[str, Any]) -> OpenAIAgent:
@@ -54,9 +60,20 @@ class OpenAIAgent:
             except Exception as e:
                 logging.error(f"Error during connecting of server {mcp_server.name}: {e}")
 
-    async def run(self, messages: list) -> str:
+    async def run(self, message: str) -> str:
         """Run a workflow starting at the given agent."""
-        result = await Runner.run(self.main_agent, input=messages)
+        self.messages.append(
+            {
+                "role": "user",
+                "content": message,
+            }
+        )
+        result = await Runner.run(self.main_agent, input=self.messages)
+        self.messages = result.to_input_list()
+        # Add conversation history (last 5 messages)
+        self.messages = self.messages[-5:]
+        # agent memory
+        logging.info("\n" + pformat(self.messages))
         return str(result.final_output)
 
     async def cleanup(self) -> None:
