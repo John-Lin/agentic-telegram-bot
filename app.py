@@ -18,7 +18,8 @@ async def main() -> None:
     """Initialize and run the Telegram bot."""
     config = Configuration()
 
-    server_config = config.load_config("servers_config.json")
+    # server_config = config.load_config("servers_config.json")
+    server_config = config.load_config("dummy_servers_config.json")
     openai_agent = OpenAIAgent.from_dict("Telegram Bot Agent", server_config["mcpServers"])
 
     # Initialize the OpenAI agents with mcp servers

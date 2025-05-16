@@ -108,7 +108,7 @@ class TelegramMCPBot:
             asst_text = await self.agent.run(user_text)
             # Add assistant response to conversation history
             self.conversations[chat_id]["messages"].append({"role": "assistant", "content": asst_text})
-            if len(asst_text) < 200:
+            if len(asst_text) < 500:
                 await update.message.reply_text(text=asst_text)
             else:
                 # Send the response in a quote block
