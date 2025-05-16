@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agentize.agents.summary import get_summary_agent
 from agentize.model import get_openai_model
+from agentize.prompts.summary import INSTRUCTIONS
+from agentize.prompts.summary import Summary
 from agentize.tools.duckduckgo import duckduckgo_search
 from agentize.tools.firecrawl import map_tool
 from agentize.tools.markitdown import markitdown_scrape_tool
@@ -21,14 +22,17 @@ class OpenAIAgent:
 
     def __init__(self, name: str, mcp_servers: list | None = None) -> None:
         configure_langfuse("Telegram Bot")
-        self.summary_agent = get_summary_agent(
-            lang="台灣中文",
-            length=1_000,
+        self.summary_agent = Agent(
+            name="summary_agent",
+            instructions=INSTRUCTIONS.format(lang="台灣中文", length=1_000),
+            model=get_openai_model(model="o3-mini", api_type="chat_completions"),
+            output_type=Summary,
         )
+
         self.main_agent = Agent(
             name=name,
             instructions="You are a helpful assistant. Handoff to the summary agent when you need to summarize.",
-            model=get_openai_model(),
+            model=get_openai_model(model="gpt-4.1"),
             tools=[markitdown_scrape_tool, map_tool, duckduckgo_search, publish_page],
             handoffs=[self.summary_agent],
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
