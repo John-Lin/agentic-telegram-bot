@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from telegram import ReplyParameters
 from telegram import Update
-from telegram.constants import ParseMode
+
+# from telegram import ReplyParameters
+# from telegram.constants import ParseMode
 from telegram.ext import Application
 from telegram.ext import CommandHandler
 from telegram.ext import ContextTypes
@@ -108,16 +109,14 @@ class TelegramMCPBot:
             asst_text = await self.agent.run(user_text)
             # Add assistant response to conversation history
             self.conversations[chat_id]["messages"].append({"role": "assistant", "content": asst_text})
-            if len(asst_text) < 500:
-                await update.message.reply_text(text=asst_text)
-            else:
-                # Send the response in a quote block
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"<blockquote expandable>{asst_text}</blockquote>",
-                    parse_mode=ParseMode.HTML,
-                    reply_parameters=ReplyParameters(message_id=update.message.message_id),
-                )
+            await update.message.reply_text(text=asst_text)
+            #     # Send the response in a quote block
+            #     await context.bot.send_message(
+            #         chat_id=update.effective_chat.id,
+            #         text=f"<blockquote expandable>{asst_text}</blockquote>",
+            #         parse_mode=ParseMode.HTML,
+            #         reply_parameters=ReplyParameters(message_id=update.message.message_id),
+            #     )
         except Exception as e:
             error_message = f"I'm sorry, I encountered an error: {str(e)}"
             logging.error(f"Error processing message: {e}", exc_info=True)

@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "agentize[langfuse]>=0.0.18",
+    "agentize[all]>=0.0.19",
     "mcp>=1.6.0",
     "openai-agents>=0.0.14",
     "python-dotenv>=1.1.0",
