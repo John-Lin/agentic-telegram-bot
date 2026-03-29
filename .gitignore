@@ -11,3 +11,4 @@ wheels/
 .envrc
 servers_config.json
 access.json
+.access.pending.json

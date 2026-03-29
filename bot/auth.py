@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 AUTH_FILE: str | Path = "access.json"
+PENDING_FILE: str | Path = ".access.pending.json"
 
 PAIRING_CODE_TTL_SECONDS = 600  # 10 minutes
 
@@ -18,7 +19,7 @@ VALID_DM_POLICIES = ("pairing", "allowlist", "disabled")
 
 
 def _default_auth() -> dict[str, Any]:
-    return {"dmPolicy": "pairing", "allowFrom": [], "groups": {}, "pending": {}}
+    return {"dmPolicy": "pairing", "allowFrom": [], "groups": {}}
 
 
 def load_auth() -> dict[str, Any]:
@@ -30,6 +31,8 @@ def load_auth() -> dict[str, Any]:
     # Backfill missing keys for older files
     for key, default in _default_auth().items():
         data.setdefault(key, type(default)() if not isinstance(default, str) else default)
+    # Strip pending if present in old files
+    data.pop("pending", None)
     return data
 
 
@@ -51,6 +54,19 @@ def locked_auth() -> Generator[dict[str, Any]]:
             save_auth(data)
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+
+def _load_pending() -> dict[str, Any]:
+    path = Path(PENDING_FILE)
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        return json.load(f)
+
+
+def _save_pending(data: dict[str, Any]) -> None:
+    with open(Path(PENDING_FILE), "w") as f:
+        json.dump(data, f, indent=2)
 
 
 # --- DM policy ---
@@ -77,27 +93,30 @@ def is_allowed(user_id: int) -> bool:
 def create_pairing_code(user_id: int, username: str) -> str:
     alphabet = string.ascii_uppercase + string.digits
     code = "".join(secrets.choice(alphabet) for _ in range(6))
-    with locked_auth() as data:
-        data["pending"][code] = {
-            "user_id": user_id,
-            "username": username,
-            "created_at": time.time(),
-        }
+    pending = _load_pending()
+    pending[code] = {
+        "user_id": user_id,
+        "username": username,
+        "created_at": time.time(),
+    }
+    _save_pending(pending)
     return code
 
 
 def confirm_pairing(code: str) -> int | None:
+    pending = _load_pending()
+    if code not in pending:
+        return None
+    entry = pending[code]
+    created_at = entry.get("created_at", 0)
+    if time.time() - created_at > PAIRING_CODE_TTL_SECONDS:
+        del pending[code]
+        _save_pending(pending)
+        return None
+    user_id = pending.pop(code)["user_id"]
+    _save_pending(pending)
+    uid_str = str(user_id)
     with locked_auth() as data:
-        if code not in data["pending"]:
-            return None
-        entry = data["pending"][code]
-        # Check expiration
-        created_at = entry.get("created_at", 0)
-        if time.time() - created_at > PAIRING_CODE_TTL_SECONDS:
-            del data["pending"][code]
-            return None
-        user_id = data["pending"].pop(code)["user_id"]
-        uid_str = str(user_id)
         if uid_str not in data["allowFrom"]:
             data["allowFrom"].append(uid_str)
     return user_id

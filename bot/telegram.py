@@ -130,20 +130,19 @@ class TelegramMCPBot:
         if group_config is None:
             return  # Group not configured, silently ignore
 
-        # Check mention requirement
-        if group_config["requireMention"] and not (
-            update.message.entities
-            and any(
+        allow_from = group_config["allowFrom"]
+        if allow_from:
+            # Only listed users can trigger, no mention needed
+            if str(user.id) not in allow_from:
+                return
+        elif group_config["requireMention"]:
+            # Any member can trigger, but must mention
+            has_mention = update.message.entities and any(
                 e.type == "mention" and update.message.text[e.offset : e.offset + e.length] == self.bot_username
                 for e in update.message.entities
             )
-        ):
-            return
-
-        # Check allowFrom if configured
-        allow_from = group_config["allowFrom"]
-        if allow_from and str(user.id) not in allow_from:
-            return
+            if not has_mention:
+                return
 
         await self._respond(update)
 

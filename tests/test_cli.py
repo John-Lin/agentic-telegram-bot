@@ -19,6 +19,7 @@ def auth_file(tmp_path, monkeypatch):
     """Use a temporary auth file for every test."""
     path = tmp_path / "access.json"
     monkeypatch.setattr("bot.auth.AUTH_FILE", path)
+    monkeypatch.setattr("bot.auth.PENDING_FILE", tmp_path / ".access.pending.json")
     return path
 
 
@@ -31,7 +32,7 @@ class TestCmdAllow:
         assert "123" in captured.out
 
     def test_allow_duplicate_user(self, capsys):
-        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}, "pending": {}})
+        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}})
         args = argparse.Namespace(user_id=123)
         cmd_allow(args)
         assert is_allowed(123) is True
@@ -41,7 +42,7 @@ class TestCmdAllow:
 
 class TestCmdRemove:
     def test_removes_existing_user(self, capsys):
-        save_auth({"dmPolicy": "pairing", "allowFrom": ["123", "456"], "groups": {}, "pending": {}})
+        save_auth({"dmPolicy": "pairing", "allowFrom": ["123", "456"], "groups": {}})
         args = argparse.Namespace(user_id=123)
         cmd_remove(args)
         assert is_allowed(123) is False

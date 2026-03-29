@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+import bot.auth as auth_mod
 from bot.auth import add_group
 from bot.auth import confirm_pairing
 from bot.auth import create_pairing_code
@@ -21,10 +22,10 @@ from bot.auth import set_dm_policy
 
 @pytest.fixture(autouse=True)
 def auth_file(tmp_path, monkeypatch):
-    """Use a temporary auth file for every test."""
-    path = tmp_path / "access.json"
-    monkeypatch.setattr("bot.auth.AUTH_FILE", path)
-    return path
+    """Use temporary files for every test."""
+    monkeypatch.setattr("bot.auth.AUTH_FILE", tmp_path / "access.json")
+    monkeypatch.setattr("bot.auth.PENDING_FILE", tmp_path / ".access.pending.json")
+    return tmp_path
 
 
 class TestLoadSave:
@@ -34,19 +35,24 @@ class TestLoadSave:
             "dmPolicy": "pairing",
             "allowFrom": [],
             "groups": {},
-            "pending": {},
         }
 
     def test_save_and_load_roundtrip(self):
-        data = {"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}, "pending": {}}
+        data = {"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}}
         save_auth(data)
         assert load_auth() == data
 
     def test_load_backfills_missing_dm_policy(self):
         """Old files without dmPolicy get the default."""
-        save_auth({"allowFrom": ["123"], "groups": {}, "pending": {}})
+        save_auth({"allowFrom": ["123"], "groups": {}})
         data = load_auth()
         assert data["dmPolicy"] == "pairing"
+
+    def test_load_strips_pending_from_old_files(self):
+        """Old files with pending key should have it stripped on load."""
+        save_auth({"dmPolicy": "pairing", "allowFrom": [], "groups": {}, "pending": {"ABC": {}}})
+        data = load_auth()
+        assert "pending" not in data
 
 
 class TestIsAllowed:
@@ -54,12 +60,12 @@ class TestIsAllowed:
         assert is_allowed(999) is False
 
     def test_allowed_user(self):
-        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}, "pending": {}})
+        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}})
         assert is_allowed(123) is True
 
     def test_allowed_user_compared_as_string(self):
         """User IDs stored as strings, is_allowed accepts int."""
-        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}, "pending": {}})
+        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}})
         assert is_allowed(123) is True
         assert is_allowed(456) is False
 
@@ -70,12 +76,17 @@ class TestPairing:
         assert len(code) == 6
         assert code.isalnum()
 
-    def test_create_pairing_code_stores_pending(self):
+    def test_create_pairing_code_stores_in_pending_file(self):
         code = create_pairing_code(123, "john")
+        pending = auth_mod._load_pending()
+        assert code in pending
+        assert pending[code]["user_id"] == 123
+        assert pending[code]["username"] == "john"
+
+    def test_pending_not_in_access_json(self):
+        create_pairing_code(123, "john")
         data = load_auth()
-        assert code in data["pending"]
-        assert data["pending"][code]["user_id"] == 123
-        assert data["pending"][code]["username"] == "john"
+        assert "pending" not in data
 
     def test_confirm_pairing_adds_to_allow_from(self):
         code = create_pairing_code(123, "john")
@@ -92,8 +103,8 @@ class TestPairing:
     def test_confirm_pairing_removes_pending(self):
         code = create_pairing_code(123, "john")
         confirm_pairing(code)
-        data = load_auth()
-        assert code not in data["pending"]
+        pending = auth_mod._load_pending()
+        assert code not in pending
 
     def test_confirm_pairing_invalid_code_returns_none(self):
         assert confirm_pairing("BADCODE") is None
@@ -171,7 +182,7 @@ class TestGroupAccess:
 
 class TestLockedAuth:
     def test_locked_auth_loads_data(self):
-        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}, "pending": {}})
+        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}})
         with locked_auth() as data:
             assert data["allowFrom"] == ["123"]
 
@@ -181,7 +192,7 @@ class TestLockedAuth:
         assert load_auth()["allowFrom"] == ["456"]
 
     def test_locked_auth_does_not_save_on_exception(self):
-        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}, "pending": {}})
+        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}})
         with pytest.raises(RuntimeError), locked_auth() as data:
             data["allowFrom"].append("999")
             raise RuntimeError("boom")
@@ -190,12 +201,11 @@ class TestLockedAuth:
 
 
 class TestPairingExpiration:
-    def test_expired_code_returns_none(self, monkeypatch):
+    def test_expired_code_returns_none(self):
         code = create_pairing_code(123, "john")
-        # Simulate 11 minutes passing
-        data = load_auth()
-        data["pending"][code]["created_at"] = time.time() - 660
-        save_auth(data)
+        pending = auth_mod._load_pending()
+        pending[code]["created_at"] = time.time() - 660
+        auth_mod._save_pending(pending)
         assert confirm_pairing(code) is None
 
     def test_fresh_code_works(self):
@@ -205,26 +215,25 @@ class TestPairingExpiration:
 
     def test_expired_code_is_cleaned_up(self):
         code = create_pairing_code(123, "john")
-        data = load_auth()
-        data["pending"][code]["created_at"] = time.time() - 660
-        save_auth(data)
+        pending = auth_mod._load_pending()
+        pending[code]["created_at"] = time.time() - 660
+        auth_mod._save_pending(pending)
         confirm_pairing(code)
-        # Expired code should be removed from pending
-        data = load_auth()
-        assert code not in data["pending"]
+        pending = auth_mod._load_pending()
+        assert code not in pending
 
     def test_create_pairing_code_stores_created_at(self):
         before = time.time()
         code = create_pairing_code(123, "john")
         after = time.time()
-        data = load_auth()
-        assert "created_at" in data["pending"][code]
-        assert before <= data["pending"][code]["created_at"] <= after
+        pending = auth_mod._load_pending()
+        assert "created_at" in pending[code]
+        assert before <= pending[code]["created_at"] <= after
 
 
 class TestRemoveUser:
     def test_remove_existing_user(self):
-        save_auth({"dmPolicy": "pairing", "allowFrom": ["123", "456"], "groups": {}, "pending": {}})
+        save_auth({"dmPolicy": "pairing", "allowFrom": ["123", "456"], "groups": {}})
         assert remove_user(123) is True
         assert is_allowed(123) is False
         assert is_allowed(456) is True
@@ -233,7 +242,7 @@ class TestRemoveUser:
         assert remove_user(999) is False
 
     def test_remove_user_idempotent(self):
-        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}, "pending": {}})
+        save_auth({"dmPolicy": "pairing", "allowFrom": ["123"], "groups": {}})
         assert remove_user(123) is True
         assert remove_user(123) is False
 
