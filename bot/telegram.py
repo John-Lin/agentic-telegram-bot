@@ -21,7 +21,7 @@ class TelegramMCPBot:
             raise ValueError("BOT_USERNAME is not set")
 
         if token is None:
-            raise ValueError("TELEGRAM_TOKEN is not set")
+            raise ValueError("TELEGRAM_BOT_TOKEN is not set")
 
         self.bot_username = bot_username
         self.agent = openai_agent
@@ -83,9 +83,7 @@ class TelegramMCPBot:
         if not is_allowed(user.id):
             code = create_pairing_code(user.id, user.username or "")
             await update.message.reply_text(
-                f"Your pairing code: {code}\n\n"
-                f"Run this in your terminal to complete pairing:\n"
-                f"  uv run bot pair {code}"
+                f"Your pairing code: {code}\n\nRun this in your terminal to complete pairing:\n  uv run bot pair {code}"
             )
             return
 
