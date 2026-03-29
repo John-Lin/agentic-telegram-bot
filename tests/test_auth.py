@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from bot.auth import add_group
@@ -9,7 +11,9 @@ from bot.auth import get_group_config
 from bot.auth import is_allowed
 from bot.auth import list_groups
 from bot.auth import load_auth
+from bot.auth import locked_auth
 from bot.auth import remove_group
+from bot.auth import remove_user
 from bot.auth import save_auth
 
 
@@ -138,3 +142,72 @@ class TestGroupAccess:
         config = get_group_config(-1001234)
         assert config["require_mention"] is False
         assert config["allowed_members"] == [111]
+
+
+class TestLockedAuth:
+    def test_locked_auth_loads_data(self):
+        save_auth({"allowed_users": [123], "allowed_groups": {}, "pending": {}})
+        with locked_auth() as data:
+            assert data["allowed_users"] == [123]
+
+    def test_locked_auth_saves_on_exit(self):
+        with locked_auth() as data:
+            data["allowed_users"].append(456)
+        assert load_auth()["allowed_users"] == [456]
+
+    def test_locked_auth_does_not_save_on_exception(self):
+        save_auth({"allowed_users": [123], "allowed_groups": {}, "pending": {}})
+        with pytest.raises(RuntimeError), locked_auth() as data:
+            data["allowed_users"].append(999)
+            raise RuntimeError("boom")
+        # Original data should be preserved
+        assert load_auth()["allowed_users"] == [123]
+
+
+class TestPairingExpiration:
+    def test_expired_code_returns_none(self, monkeypatch):
+        code = create_pairing_code(123, "john")
+        # Simulate 11 minutes passing
+        data = load_auth()
+        data["pending"][code]["created_at"] = time.time() - 660
+        save_auth(data)
+        assert confirm_pairing(code) is None
+
+    def test_fresh_code_works(self):
+        code = create_pairing_code(123, "john")
+        user_id = confirm_pairing(code)
+        assert user_id == 123
+
+    def test_expired_code_is_cleaned_up(self):
+        code = create_pairing_code(123, "john")
+        data = load_auth()
+        data["pending"][code]["created_at"] = time.time() - 660
+        save_auth(data)
+        confirm_pairing(code)
+        # Expired code should be removed from pending
+        data = load_auth()
+        assert code not in data["pending"]
+
+    def test_create_pairing_code_stores_created_at(self):
+        before = time.time()
+        code = create_pairing_code(123, "john")
+        after = time.time()
+        data = load_auth()
+        assert "created_at" in data["pending"][code]
+        assert before <= data["pending"][code]["created_at"] <= after
+
+
+class TestRemoveUser:
+    def test_remove_existing_user(self):
+        save_auth({"allowed_users": [123, 456], "allowed_groups": {}, "pending": {}})
+        assert remove_user(123) is True
+        assert is_allowed(123) is False
+        assert is_allowed(456) is True
+
+    def test_remove_nonexistent_user(self):
+        assert remove_user(999) is False
+
+    def test_remove_user_idempotent(self):
+        save_auth({"allowed_users": [123], "allowed_groups": {}, "pending": {}})
+        assert remove_user(123) is True
+        assert remove_user(123) is False

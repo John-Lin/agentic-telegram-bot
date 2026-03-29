@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import secrets
 import string
+import time
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 AUTH_FILE: str | Path = "allowlist.json"
+
+PAIRING_CODE_TTL_SECONDS = 600  # 10 minutes
 
 
 def _default_auth() -> dict[str, Any]:
@@ -30,6 +36,21 @@ def save_auth(data: dict[str, Any]) -> None:
         json.dump(data, f, indent=2)
 
 
+@contextmanager
+def locked_auth() -> Generator[dict[str, Any], None, None]:
+    """Load auth data under an exclusive file lock; save only on clean exit."""
+    lock_path = Path(str(AUTH_FILE) + ".lock")
+    lock_path.touch(exist_ok=True)
+    with open(lock_path) as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            data = load_auth()
+            yield data
+            save_auth(data)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+
 # --- User pairing ---
 
 
@@ -40,21 +61,37 @@ def is_allowed(user_id: int) -> bool:
 def create_pairing_code(user_id: int, username: str) -> str:
     alphabet = string.ascii_uppercase + string.digits
     code = "".join(secrets.choice(alphabet) for _ in range(6))
-    data = load_auth()
-    data["pending"][code] = {"user_id": user_id, "username": username}
-    save_auth(data)
+    with locked_auth() as data:
+        data["pending"][code] = {
+            "user_id": user_id,
+            "username": username,
+            "created_at": time.time(),
+        }
     return code
 
 
 def confirm_pairing(code: str) -> int | None:
-    data = load_auth()
-    if code not in data["pending"]:
-        return None
-    user_id = data["pending"].pop(code)["user_id"]
-    if user_id not in data["allowed_users"]:
-        data["allowed_users"].append(user_id)
-    save_auth(data)
+    with locked_auth() as data:
+        if code not in data["pending"]:
+            return None
+        entry = data["pending"][code]
+        # Check expiration
+        created_at = entry.get("created_at", 0)
+        if time.time() - created_at > PAIRING_CODE_TTL_SECONDS:
+            del data["pending"][code]
+            return None
+        user_id = data["pending"].pop(code)["user_id"]
+        if user_id not in data["allowed_users"]:
+            data["allowed_users"].append(user_id)
     return user_id
+
+
+def remove_user(user_id: int) -> bool:
+    with locked_auth() as data:
+        if user_id not in data["allowed_users"]:
+            return False
+        data["allowed_users"].remove(user_id)
+    return True
 
 
 # --- Group access ---
@@ -70,20 +107,18 @@ def add_group(
     require_mention: bool = True,
     allowed_members: list[int] | None = None,
 ) -> None:
-    data = load_auth()
-    data["allowed_groups"][str(group_id)] = {
-        "require_mention": require_mention,
-        "allowed_members": allowed_members or [],
-    }
-    save_auth(data)
+    with locked_auth() as data:
+        data["allowed_groups"][str(group_id)] = {
+            "require_mention": require_mention,
+            "allowed_members": allowed_members or [],
+        }
 
 
 def remove_group(group_id: int) -> bool:
-    data = load_auth()
-    if str(group_id) not in data["allowed_groups"]:
-        return False
-    del data["allowed_groups"][str(group_id)]
-    save_auth(data)
+    with locked_auth() as data:
+        if str(group_id) not in data["allowed_groups"]:
+            return False
+        del data["allowed_groups"][str(group_id)]
     return True
 
 
