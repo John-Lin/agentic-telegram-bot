@@ -12,6 +12,13 @@ from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from openai import AsyncAzureOpenAI
 from openai import AsyncOpenAI
 
+DEFAULT_INSTRUCTIONS = (
+    "You are a helpful assistant in a Telegram chat. "
+    "When referencing articles, websites, or resources, always include "
+    "the URL as a markdown hyperlink, e.g. [title](https://example.com). "
+    "Keep responses concise and well-structured for mobile reading."
+)
+
 
 def _get_model() -> OpenAIChatCompletionsModel:
     """Create an OpenAI model from environment variables."""
@@ -33,15 +40,15 @@ def _get_model() -> OpenAIChatCompletionsModel:
 class OpenAIAgent:
     """A wrapper for OpenAI Agent with MCP server support."""
 
-    def __init__(self, name: str, mcp_servers: list | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        mcp_servers: list | None = None,
+        instructions: str = DEFAULT_INSTRUCTIONS,
+    ) -> None:
         self.agent = Agent(
             name=name,
-            instructions=(
-                "You are a helpful assistant in a Telegram chat. "
-                "When referencing articles, websites, or resources, always include "
-                "the URL as a markdown hyperlink, e.g. [title](https://example.com). "
-                "Keep responses concise and well-structured for mobile reading."
-            ),
+            instructions=instructions,
             model=_get_model(),
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
         )
@@ -70,9 +77,10 @@ class OpenAIAgent:
                     "env": mcp_srv.get("env", {}),
                 },
             )
-            for mcp_srv in config.values()
+            for mcp_srv in config.get("mcpServers", {}).values()
         ]
-        return cls(name, mcp_servers)
+        instructions = config.get("instructions", DEFAULT_INSTRUCTIONS)
+        return cls(name, mcp_servers, instructions=instructions)
 
     async def connect(self) -> None:
         for mcp_server in self.agent.mcp_servers:

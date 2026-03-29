@@ -26,7 +26,7 @@ async def start_bot() -> None:
     config = Configuration()
 
     server_config = config.load_config("servers_config.json")
-    openai_agent = OpenAIAgent.from_dict("Telegram Bot Agent", server_config["mcpServers"])
+    openai_agent = OpenAIAgent.from_dict("Telegram Bot Agent", server_config)
 
     tg_bot = TelegramMCPBot(
         config.telegram_bot_token,

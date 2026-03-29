@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bot.agents import DEFAULT_INSTRUCTIONS
 from bot.agents import OpenAIAgent
 
 
@@ -46,3 +47,28 @@ class TestPerChatConversations:
         agent.set_messages(chat_id=100, messages=[])
         assert agent.get_messages(chat_id=100) == []
         assert len(agent.get_messages(chat_id=200)) == 1
+
+
+class TestInstructions:
+    def test_default_instructions_when_none_provided(self):
+        agent = OpenAIAgent(name="test")
+        assert agent.agent.instructions == DEFAULT_INSTRUCTIONS
+
+    def test_custom_instructions(self):
+        agent = OpenAIAgent(name="test", instructions="Be a HN bot.")
+        assert agent.agent.instructions == "Be a HN bot."
+
+    def test_from_dict_reads_instructions(self):
+        config = {
+            "instructions": "Custom prompt here.",
+            "mcpServers": {},
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        assert agent.agent.instructions == "Custom prompt here."
+
+    def test_from_dict_uses_default_without_instructions(self):
+        config = {
+            "mcpServers": {},
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        assert agent.agent.instructions == DEFAULT_INSTRUCTIONS
