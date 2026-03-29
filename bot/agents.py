@@ -36,7 +36,12 @@ class OpenAIAgent:
     def __init__(self, name: str, mcp_servers: list | None = None) -> None:
         self.agent = Agent(
             name=name,
-            instructions="You are a helpful assistant.",
+            instructions=(
+                "You are a helpful assistant in a Telegram chat. "
+                "When referencing articles, websites, or resources, always include "
+                "the URL as a markdown hyperlink, e.g. [title](https://example.com). "
+                "Keep responses concise and well-structured for mobile reading."
+            ),
             model=_get_model(),
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
         )
