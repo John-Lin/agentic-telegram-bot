@@ -9,7 +9,9 @@ from bot.agents import OpenAIAgent
 from bot.auth import add_group
 from bot.auth import confirm_pairing
 from bot.auth import list_groups
+from bot.auth import load_auth
 from bot.auth import remove_group
+from bot.auth import remove_user
 from bot.config import Configuration
 from bot.telegram import TelegramMCPBot
 
@@ -81,6 +83,24 @@ def cmd_group_list(args: argparse.Namespace) -> None:
         print(f"  {gid}  trigger={mention}  members={members_str}")
 
 
+def cmd_user_remove(args: argparse.Namespace) -> None:
+    if remove_user(args.user_id):
+        print(f"User {args.user_id} removed from allowlist.")
+    else:
+        print(f"User {args.user_id} not found.")
+        sys.exit(1)
+
+
+def cmd_user_list(args: argparse.Namespace) -> None:
+    data = load_auth()
+    users = data["allowed_users"]
+    if not users:
+        print("No allowed users.")
+        return
+    for uid in users:
+        print(f"  {uid}")
+
+
 def run():
     parser = argparse.ArgumentParser(description="Agentic Telegram Bot")
     subparsers = parser.add_subparsers(dest="command")
@@ -94,6 +114,16 @@ def run():
     access_parser = subparsers.add_parser("access", help="Manage access control")
     access_sub = access_parser.add_subparsers(dest="access_command")
 
+    # access user subcommands
+    user_parser = access_sub.add_parser("user", help="Manage user access")
+    user_sub = user_parser.add_subparsers(dest="user_command")
+
+    user_rm = user_sub.add_parser("remove", help="Remove a user from the allowlist")
+    user_rm.add_argument("user_id", type=int, help="Telegram user ID")
+
+    user_sub.add_parser("list", help="List allowed users")
+
+    # access group subcommands
     group_parser = access_sub.add_parser("group", help="Manage group access")
     group_sub = group_parser.add_subparsers(dest="group_command")
 
@@ -112,7 +142,14 @@ def run():
     if args.command == "pair":
         cmd_pair(args)
     elif args.command == "access":
-        if args.access_command == "group":
+        if args.access_command == "user":
+            if args.user_command == "remove":
+                cmd_user_remove(args)
+            elif args.user_command == "list":
+                cmd_user_list(args)
+            else:
+                user_parser.print_help()
+        elif args.access_command == "group":
             if args.group_command == "add":
                 cmd_group_add(args)
             elif args.group_command == "remove":
