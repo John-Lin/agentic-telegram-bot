@@ -53,6 +53,7 @@ Edit `servers_config.json` to add your MCP servers:
 
 ```json
 {
+  "instructions": "Your custom system prompt here.",
   "mcpServers": {
     "my-server": {
       "command": "uvx",
@@ -66,6 +67,7 @@ For local MCP servers, use `uv --directory`:
 
 ```json
 {
+  "instructions": "Your custom system prompt here.",
   "mcpServers": {
     "my-server": {
       "command": "uv",
