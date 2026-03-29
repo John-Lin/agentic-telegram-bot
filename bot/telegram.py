@@ -40,6 +40,7 @@ class TelegramMCPBot:
         await self.initialize_agent()
 
         self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(CommandHandler("chatid", self.chatid_command))
 
         # Private chat: respond to all text messages
         self.application.add_handler(
@@ -74,6 +75,12 @@ class TelegramMCPBot:
         if update.message is None:
             return
         await update.message.reply_text("Help!")
+
+    async def chatid_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Reply with the current chat ID. Bypasses auth for group discovery."""
+        if update.message is None or update.effective_chat is None:
+            return
+        await update.message.reply_text(str(update.effective_chat.id))
 
     async def handle_private(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle private chat messages with pairing support."""
