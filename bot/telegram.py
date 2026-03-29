@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.constants import ParseMode
 from telegram.ext import Application
 from telegram.ext import CommandHandler
@@ -12,6 +14,7 @@ from telegram.ext import filters
 
 from .agents import OpenAIAgent
 from .auth import create_pairing_code
+from .auth import get_dm_policy
 from .auth import get_group_config
 from .auth import is_allowed
 from .formatting import markdown_to_telegram_html
@@ -83,7 +86,7 @@ class TelegramMCPBot:
         await update.message.reply_text(str(update.effective_chat.id))
 
     async def handle_private(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle private chat messages with pairing support."""
+        """Handle private chat messages with dmPolicy support."""
         if update.message is None or update.message.text is None:
             return
 
@@ -91,14 +94,25 @@ class TelegramMCPBot:
         if user is None:
             return
 
-        if not is_allowed(user.id):
-            code = create_pairing_code(user.id, user.username or "")
-            await update.message.reply_text(
-                f"Your pairing code: {code}\n\nRun this in your terminal to complete pairing:\n  uv run bot pair {code}"
-            )
+        policy = get_dm_policy()
+
+        if policy == "disabled":
             return
 
-        await self._respond(update)
+        if is_allowed(user.id):
+            await self._respond(update)
+            return
+
+        # User not in allowFrom
+        if policy == "allowlist":
+            return  # Silent drop
+
+        # policy == "pairing"
+        code = create_pairing_code(user.id, user.username or "")
+        await update.message.reply_text(
+            f"Your pairing code: {code}\n\n"
+            f"Run this in your terminal to complete pairing:\n  uv run bot access pair {code}"
+        )
 
     async def handle_group(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle group messages with group access control."""
@@ -109,12 +123,15 @@ class TelegramMCPBot:
         if user is None:
             return
 
+        if get_dm_policy() == "disabled":
+            return
+
         group_config = get_group_config(update.effective_chat.id)
         if group_config is None:
-            return  # Group not allowed, silently ignore
+            return  # Group not configured, silently ignore
 
         # Check mention requirement
-        if group_config["require_mention"] and not (
+        if group_config["requireMention"] and not (
             update.message.entities
             and any(
                 e.type == "mention" and update.message.text[e.offset : e.offset + e.length] == self.bot_username
@@ -123,12 +140,24 @@ class TelegramMCPBot:
         ):
             return
 
-        # Check allowed_members if configured
-        allowed_members = group_config["allowed_members"]
-        if allowed_members and user.id not in allowed_members:
+        # Check allowFrom if configured
+        allow_from = group_config["allowFrom"]
+        if allow_from and str(user.id) not in allow_from:
             return
 
         await self._respond(update)
+
+    TYPING_INTERVAL_SECONDS = 4
+
+    async def _send_typing_loop(self, update: Update) -> None:
+        """Send typing action repeatedly until cancelled."""
+        assert update.message is not None
+        try:
+            while True:
+                await asyncio.sleep(self.TYPING_INTERVAL_SECONDS)
+                await update.message.chat.send_action(ChatAction.TYPING)
+        except asyncio.CancelledError:
+            pass
 
     async def _respond(self, update: Update) -> None:
         """Run agent and reply."""
@@ -138,6 +167,8 @@ class TelegramMCPBot:
         if user is not None and not self.rate_limiter.is_allowed(user.id):
             await update.message.reply_text("Rate limit exceeded. Please try again later.")
             return
+        await update.message.chat.send_action(ChatAction.TYPING)
+        typing_task = asyncio.create_task(self._send_typing_loop(update))
         try:
             asst_text = await self.agent.run(update.effective_chat.id, update.message.text)
             html_text = markdown_to_telegram_html(asst_text)
@@ -149,3 +180,5 @@ class TelegramMCPBot:
         except Exception as e:
             logging.error(f"Error processing message: {e}", exc_info=True)
             await update.message.reply_text("I'm sorry, I encountered an error processing your request.")
+        finally:
+            typing_task.cancel()

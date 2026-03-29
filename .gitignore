@@ -10,4 +10,4 @@ wheels/
 .venv
 .envrc
 servers_config.json
-allowlist.json
+access.json

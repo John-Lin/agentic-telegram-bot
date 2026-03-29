@@ -10,13 +10,15 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-AUTH_FILE: str | Path = "allowlist.json"
+AUTH_FILE: str | Path = "access.json"
 
 PAIRING_CODE_TTL_SECONDS = 600  # 10 minutes
 
+VALID_DM_POLICIES = ("pairing", "allowlist", "disabled")
+
 
 def _default_auth() -> dict[str, Any]:
-    return {"allowed_users": [], "allowed_groups": {}, "pending": {}}
+    return {"dmPolicy": "pairing", "allowFrom": [], "groups": {}, "pending": {}}
 
 
 def load_auth() -> dict[str, Any]:
@@ -27,7 +29,7 @@ def load_auth() -> dict[str, Any]:
         data = json.load(f)
     # Backfill missing keys for older files
     for key, default in _default_auth().items():
-        data.setdefault(key, type(default)())
+        data.setdefault(key, type(default)() if not isinstance(default, str) else default)
     return data
 
 
@@ -51,11 +53,25 @@ def locked_auth() -> Generator[dict[str, Any]]:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
 
+# --- DM policy ---
+
+
+def get_dm_policy() -> str:
+    return load_auth()["dmPolicy"]
+
+
+def set_dm_policy(policy: str) -> None:
+    if policy not in VALID_DM_POLICIES:
+        raise ValueError(f"invalid dmPolicy: {policy!r} (must be one of {VALID_DM_POLICIES})")
+    with locked_auth() as data:
+        data["dmPolicy"] = policy
+
+
 # --- User pairing ---
 
 
 def is_allowed(user_id: int) -> bool:
-    return user_id in load_auth()["allowed_users"]
+    return str(user_id) in load_auth()["allowFrom"]
 
 
 def create_pairing_code(user_id: int, username: str) -> str:
@@ -81,16 +97,28 @@ def confirm_pairing(code: str) -> int | None:
             del data["pending"][code]
             return None
         user_id = data["pending"].pop(code)["user_id"]
-        if user_id not in data["allowed_users"]:
-            data["allowed_users"].append(user_id)
+        uid_str = str(user_id)
+        if uid_str not in data["allowFrom"]:
+            data["allowFrom"].append(uid_str)
     return user_id
 
 
-def remove_user(user_id: int) -> bool:
+def allow_user(user_id: int) -> bool:
+    """Add a user to allowFrom. Returns False if already present."""
+    uid_str = str(user_id)
     with locked_auth() as data:
-        if user_id not in data["allowed_users"]:
+        if uid_str in data["allowFrom"]:
             return False
-        data["allowed_users"].remove(user_id)
+        data["allowFrom"].append(uid_str)
+    return True
+
+
+def remove_user(user_id: int) -> bool:
+    uid_str = str(user_id)
+    with locked_auth() as data:
+        if uid_str not in data["allowFrom"]:
+            return False
+        data["allowFrom"].remove(uid_str)
     return True
 
 
@@ -98,7 +126,7 @@ def remove_user(user_id: int) -> bool:
 
 
 def get_group_config(group_id: int) -> dict[str, Any] | None:
-    groups = load_auth()["allowed_groups"]
+    groups = load_auth()["groups"]
     return groups.get(str(group_id))
 
 
@@ -108,19 +136,19 @@ def add_group(
     allowed_members: list[int] | None = None,
 ) -> None:
     with locked_auth() as data:
-        data["allowed_groups"][str(group_id)] = {
-            "require_mention": require_mention,
-            "allowed_members": allowed_members or [],
+        data["groups"][str(group_id)] = {
+            "requireMention": require_mention,
+            "allowFrom": [str(m) for m in (allowed_members or [])],
         }
 
 
 def remove_group(group_id: int) -> bool:
     with locked_auth() as data:
-        if str(group_id) not in data["allowed_groups"]:
+        if str(group_id) not in data["groups"]:
             return False
-        del data["allowed_groups"][str(group_id)]
+        del data["groups"][str(group_id)]
     return True
 
 
 def list_groups() -> dict[str, Any]:
-    return load_auth()["allowed_groups"]
+    return load_auth()["groups"]

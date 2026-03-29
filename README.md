@@ -4,7 +4,7 @@ A simple Telegram bot that uses the [OpenAI Agents SDK](https://github.com/opena
 ## Features
 
 - Private chat and group chat support
-- Pairing-based allowlist — only authorized users can interact with the bot
+- Configurable DM policy (pairing / allowlist / disabled)
 - Connects to any MCP server via `servers_config.json`
 - Supports both OpenAI and Azure OpenAI endpoints
 
@@ -85,19 +85,45 @@ uv run bot
 
 ## Access Control
 
-All access is managed via `allowlist.json` (auto-created, gitignored).
+All access is managed via `access.json` (auto-created, gitignored).
 
-### User Pairing (Private Chat)
+### DM Policy
 
-Private chat requires pairing. DM the bot any message to get a 6-character code, then confirm in your terminal:
+The bot supports three DM policies:
+
+| Policy | Behaviour |
+|---|---|
+| `pairing` (default) | Unknown users receive a 6-character pairing code |
+| `allowlist` | Unknown users are silently ignored |
+| `disabled` | All messages dropped, including allowed users and groups |
 
 ```bash
-uv run bot pair <CODE>
+# Show current policy
+uv run bot access policy
+
+# Set policy
+uv run bot access policy <pairing|allowlist|disabled>
 ```
 
-### Group Access
+### Users
 
-Groups are blocked by default. Use the CLI to manage:
+```bash
+# Directly allow a user by ID
+uv run bot access allow <USER_ID>
+
+# Remove a user
+uv run bot access remove <USER_ID>
+```
+
+When `dmPolicy` is `pairing`, unknown users receive a 6-character code via DM. Confirm in your terminal:
+
+```bash
+uv run bot access pair <CODE>
+```
+
+### Groups
+
+Groups are blocked by default.
 
 ```bash
 # Add a group (default: bot responds only to @mentions)
@@ -111,9 +137,6 @@ uv run bot access group add <GROUP_ID> --allow 111,222
 
 # Remove a group
 uv run bot access group remove <GROUP_ID>
-
-# List allowed groups
-uv run bot access group list
 ```
 
 Group members do not need to pair individually — access is controlled at the group level.
