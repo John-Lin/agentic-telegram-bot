@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import Application
 from telegram.ext import CommandHandler
 from telegram.ext import ContextTypes
@@ -13,6 +14,7 @@ from .agents import OpenAIAgent
 from .auth import create_pairing_code
 from .auth import get_group_config
 from .auth import is_allowed
+from .formatting import markdown_to_telegram_html
 from .ratelimit import RateLimiter
 
 
@@ -131,7 +133,12 @@ class TelegramMCPBot:
             return
         try:
             asst_text = await self.agent.run(update.effective_chat.id, update.message.text)
-            await update.message.reply_text(text=asst_text)
+            html_text = markdown_to_telegram_html(asst_text)
+            try:
+                await update.message.reply_text(text=html_text, parse_mode=ParseMode.HTML)
+            except Exception:
+                logging.warning("Failed to send HTML-formatted message, falling back to plain text")
+                await update.message.reply_text(text=asst_text)
         except Exception as e:
             logging.error(f"Error processing message: {e}", exc_info=True)
             await update.message.reply_text("I'm sorry, I encountered an error processing your request.")
