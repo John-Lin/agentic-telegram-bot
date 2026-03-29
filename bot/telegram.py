@@ -13,6 +13,7 @@ from .agents import OpenAIAgent
 from .auth import create_pairing_code
 from .auth import get_group_config
 from .auth import is_allowed
+from .ratelimit import RateLimiter
 
 
 class TelegramMCPBot:
@@ -26,6 +27,7 @@ class TelegramMCPBot:
         self.bot_username = bot_username
         self.agent = openai_agent
         self.application = Application.builder().token(token).build()
+        self.rate_limiter = RateLimiter()
 
     async def run(self) -> None:
         # https://github.com/python-telegram-bot/python-telegram-bot/discussions/3310
@@ -122,10 +124,13 @@ class TelegramMCPBot:
     async def _respond(self, update: Update) -> None:
         """Run agent and reply."""
         assert update.message is not None and update.message.text is not None
+        user = update.message.from_user
+        if user is not None and not self.rate_limiter.is_allowed(user.id):
+            await update.message.reply_text("Rate limit exceeded. Please try again later.")
+            return
         try:
             asst_text = await self.agent.run(update.message.text)
             await update.message.reply_text(text=asst_text)
         except Exception as e:
-            error_message = f"I'm sorry, I encountered an error: {str(e)}"
             logging.error(f"Error processing message: {e}", exc_info=True)
-            await update.message.reply_text(error_message)
+            await update.message.reply_text("I'm sorry, I encountered an error processing your request.")
