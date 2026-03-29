@@ -29,7 +29,7 @@ def _get_model() -> OpenAIChatCompletionsModel:
         client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
             azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-            api_version=os.getenv("OPENAI_API_VERSION", "2025-03-01-preview"),
+            api_version=os.getenv("OPENAI_API_VERSION", "2025-04-01-preview"),
         )
     else:
         client = AsyncOpenAI()
