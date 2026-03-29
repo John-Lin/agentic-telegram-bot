@@ -29,6 +29,21 @@ class TestBasicFormatting:
         assert "<strong>Heading 1</strong>" in result
 
 
+class TestOrderedList:
+    def test_preserves_numbers(self) -> None:
+        md = "1. first\n2. second\n3. third"
+        result = markdown_to_telegram_html(md)
+        assert "1. first" in result
+        assert "2. second" in result
+        assert "3. third" in result
+
+    def test_unordered_list_unchanged(self) -> None:
+        md = "- apple\n- banana"
+        result = markdown_to_telegram_html(md)
+        assert "- apple" in result
+        assert "- banana" in result
+
+
 class TestHtmlEscaping:
     def test_special_chars_escaped(self) -> None:
         result = markdown_to_telegram_html("a < b & c > d")
