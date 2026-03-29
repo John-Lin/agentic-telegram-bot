@@ -124,12 +124,13 @@ class TelegramMCPBot:
     async def _respond(self, update: Update) -> None:
         """Run agent and reply."""
         assert update.message is not None and update.message.text is not None
+        assert update.effective_chat is not None
         user = update.message.from_user
         if user is not None and not self.rate_limiter.is_allowed(user.id):
             await update.message.reply_text("Rate limit exceeded. Please try again later.")
             return
         try:
-            asst_text = await self.agent.run(update.message.text)
+            asst_text = await self.agent.run(update.effective_chat.id, update.message.text)
             await update.message.reply_text(text=asst_text)
         except Exception as e:
             logging.error(f"Error processing message: {e}", exc_info=True)
