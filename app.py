@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import sys
 
@@ -37,7 +38,7 @@ async def start_bot() -> None:
         await tg_bot.run()
         while True:
             await asyncio.sleep(1)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         logging.info("Shutting down...")
     except Exception as e:
         logging.error(f"Error: {e}")
@@ -101,6 +102,33 @@ def cmd_user_list(args: argparse.Namespace) -> None:
         print(f"  {uid}")
 
 
+def _dispatch_access(
+    args: argparse.Namespace,
+    access_parser: argparse.ArgumentParser,
+    user_parser: argparse.ArgumentParser,
+    group_parser: argparse.ArgumentParser,
+) -> None:
+    """Route access subcommands to their handlers."""
+    if args.access_command == "user":
+        if args.user_command == "remove":
+            cmd_user_remove(args)
+        elif args.user_command == "list":
+            cmd_user_list(args)
+        else:
+            user_parser.print_help()
+    elif args.access_command == "group":
+        if args.group_command == "add":
+            cmd_group_add(args)
+        elif args.group_command == "remove":
+            cmd_group_remove(args)
+        elif args.group_command == "list":
+            cmd_group_list(args)
+        else:
+            group_parser.print_help()
+    else:
+        access_parser.print_help()
+
+
 def run():
     parser = argparse.ArgumentParser(description="Agentic Telegram Bot")
     subparsers = parser.add_subparsers(dest="command")
@@ -142,23 +170,7 @@ def run():
     if args.command == "pair":
         cmd_pair(args)
     elif args.command == "access":
-        if args.access_command == "user":
-            if args.user_command == "remove":
-                cmd_user_remove(args)
-            elif args.user_command == "list":
-                cmd_user_list(args)
-            else:
-                user_parser.print_help()
-        elif args.access_command == "group":
-            if args.group_command == "add":
-                cmd_group_add(args)
-            elif args.group_command == "remove":
-                cmd_group_remove(args)
-            elif args.group_command == "list":
-                cmd_group_list(args)
-            else:
-                group_parser.print_help()
-        else:
-            access_parser.print_help()
+        _dispatch_access(args, access_parser, user_parser, group_parser)
     else:
-        asyncio.run(start_bot())
+        with contextlib.suppress(KeyboardInterrupt):
+            asyncio.run(start_bot())
