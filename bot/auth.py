@@ -37,7 +37,7 @@ def save_auth(data: dict[str, Any]) -> None:
 
 
 @contextmanager
-def locked_auth() -> Generator[dict[str, Any], None, None]:
+def locked_auth() -> Generator[dict[str, Any]]:
     """Load auth data under an exclusive file lock; save only on clean exit."""
     lock_path = Path(str(AUTH_FILE) + ".lock")
     lock_path.touch(exist_ok=True)

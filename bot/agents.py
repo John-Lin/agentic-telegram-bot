@@ -17,6 +17,7 @@ def _get_model() -> OpenAIChatCompletionsModel:
     """Create an OpenAI model from environment variables."""
     model_name = os.getenv("OPENAI_MODEL", "gpt-4.1")
 
+    client: AsyncOpenAI
     if os.getenv("AZURE_OPENAI_API_KEY"):
         client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
