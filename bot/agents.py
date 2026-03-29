@@ -17,6 +17,7 @@ def _get_model() -> OpenAIChatCompletionsModel:
     """Create an OpenAI model from environment variables."""
     model_name = os.getenv("OPENAI_MODEL", "gpt-4.1")
 
+    client: AsyncOpenAI
     if os.getenv("AZURE_OPENAI_API_KEY"):
         client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
@@ -40,7 +41,18 @@ class OpenAIAgent:
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
         )
         self.name = name
-        self.messages: list[TResponseInputItem] = []
+        self._conversations: dict[int, list[TResponseInputItem]] = {}
+
+    def get_messages(self, chat_id: int) -> list[TResponseInputItem]:
+        return self._conversations.get(chat_id, [])
+
+    def set_messages(self, chat_id: int, messages: list[TResponseInputItem]) -> None:
+        self._conversations[chat_id] = messages
+
+    def append_user_message(self, chat_id: int, message: str) -> None:
+        if chat_id not in self._conversations:
+            self._conversations[chat_id] = []
+        self._conversations[chat_id].append({"role": "user", "content": message})
 
     @classmethod
     def from_dict(cls, name: str, config: dict[str, Any]) -> OpenAIAgent:
@@ -65,16 +77,11 @@ class OpenAIAgent:
             except Exception as e:
                 logging.error(f"Error during connecting of server {mcp_server.name}: {e}")
 
-    async def run(self, message: str) -> str:
+    async def run(self, chat_id: int, message: str) -> str:
         """Run a workflow starting at the given agent."""
-        self.messages.append(
-            {
-                "role": "user",
-                "content": message,
-            }
-        )
-        result = await Runner.run(self.agent, input=self.messages)
-        self.messages = result.to_input_list()
+        self.append_user_message(chat_id, message)
+        result = await Runner.run(self.agent, input=self.get_messages(chat_id))
+        self.set_messages(chat_id, result.to_input_list())
         return str(result.final_output)
 
     async def cleanup(self) -> None:

@@ -13,6 +13,7 @@ from .agents import OpenAIAgent
 from .auth import create_pairing_code
 from .auth import get_group_config
 from .auth import is_allowed
+from .ratelimit import RateLimiter
 
 
 class TelegramMCPBot:
@@ -21,11 +22,12 @@ class TelegramMCPBot:
             raise ValueError("BOT_USERNAME is not set")
 
         if token is None:
-            raise ValueError("TELEGRAM_TOKEN is not set")
+            raise ValueError("TELEGRAM_BOT_TOKEN is not set")
 
         self.bot_username = bot_username
         self.agent = openai_agent
         self.application = Application.builder().token(token).build()
+        self.rate_limiter = RateLimiter()
 
     async def run(self) -> None:
         # https://github.com/python-telegram-bot/python-telegram-bot/discussions/3310
@@ -83,9 +85,7 @@ class TelegramMCPBot:
         if not is_allowed(user.id):
             code = create_pairing_code(user.id, user.username or "")
             await update.message.reply_text(
-                f"Your pairing code: {code}\n\n"
-                f"Run this in your terminal to complete pairing:\n"
-                f"  uv run bot pair {code}"
+                f"Your pairing code: {code}\n\nRun this in your terminal to complete pairing:\n  uv run bot pair {code}"
             )
             return
 
@@ -124,10 +124,14 @@ class TelegramMCPBot:
     async def _respond(self, update: Update) -> None:
         """Run agent and reply."""
         assert update.message is not None and update.message.text is not None
+        assert update.effective_chat is not None
+        user = update.message.from_user
+        if user is not None and not self.rate_limiter.is_allowed(user.id):
+            await update.message.reply_text("Rate limit exceeded. Please try again later.")
+            return
         try:
-            asst_text = await self.agent.run(update.message.text)
+            asst_text = await self.agent.run(update.effective_chat.id, update.message.text)
             await update.message.reply_text(text=asst_text)
         except Exception as e:
-            error_message = f"I'm sorry, I encountered an error: {str(e)}"
             logging.error(f"Error processing message: {e}", exc_info=True)
-            await update.message.reply_text(error_message)
+            await update.message.reply_text("I'm sorry, I encountered an error processing your request.")
