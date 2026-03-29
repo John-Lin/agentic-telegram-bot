@@ -19,6 +19,8 @@ DEFAULT_INSTRUCTIONS = (
     "Keep responses concise and well-structured for mobile reading."
 )
 
+MAX_TURNS = 25
+
 
 def _get_model() -> OpenAIChatCompletionsModel:
     """Create an OpenAI model from environment variables."""
@@ -66,6 +68,20 @@ class OpenAIAgent:
             self._conversations[chat_id] = []
         self._conversations[chat_id].append({"role": "user", "content": message})
 
+    def truncate_history(self, chat_id: int) -> None:
+        """Keep only the last MAX_TURNS turns of conversation history.
+
+        A turn starts at each user message. All messages between two user
+        messages (assistant replies, tool calls, tool results) belong to
+        the preceding turn.
+        """
+        msgs = self.get_messages(chat_id)
+        user_indices = [i for i, m in enumerate(msgs) if m.get("role") == "user"]
+        if len(user_indices) <= MAX_TURNS:
+            return
+        cut = user_indices[-MAX_TURNS]
+        self._conversations[chat_id] = msgs[cut:]
+
     @classmethod
     def from_dict(cls, name: str, config: dict[str, Any]) -> OpenAIAgent:
         mcp_servers = [
@@ -95,6 +111,7 @@ class OpenAIAgent:
         self.append_user_message(chat_id, message)
         result = await Runner.run(self.agent, input=self.get_messages(chat_id))
         self.set_messages(chat_id, result.to_input_list())
+        self.truncate_history(chat_id)
         return str(result.final_output)
 
     async def cleanup(self) -> None:

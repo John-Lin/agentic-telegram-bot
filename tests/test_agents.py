@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from bot.agents import DEFAULT_INSTRUCTIONS
+from bot.agents import MAX_TURNS
 from bot.agents import OpenAIAgent
 
 
@@ -72,3 +73,71 @@ class TestInstructions:
         }
         agent = OpenAIAgent.from_dict("test", config)
         assert agent.agent.instructions == DEFAULT_INSTRUCTIONS
+
+
+class TestHistoryTruncation:
+    def test_default_max_turns(self):
+        assert MAX_TURNS == 25
+
+    def test_truncate_keeps_recent_turns(self):
+        agent = OpenAIAgent(name="test")
+        # Simulate 30 turns: each turn is a user msg + assistant msg
+        for i in range(30):
+            agent.set_messages(
+                chat_id=100,
+                messages=agent.get_messages(chat_id=100)
+                + [
+                    {"role": "user", "content": f"user-{i}"},
+                    {"role": "assistant", "content": f"assistant-{i}"},
+                ],
+            )
+
+        agent.truncate_history(chat_id=100)
+        msgs = agent.get_messages(chat_id=100)
+
+        # Should keep last 25 turns = 50 messages (user+assistant each)
+        user_msgs = [m for m in msgs if m["role"] == "user"]
+        assert len(user_msgs) == MAX_TURNS
+        # Oldest kept should be turn 5 (0-4 dropped)
+        assert user_msgs[0]["content"] == "user-5"
+        # Most recent should be turn 29
+        assert user_msgs[-1]["content"] == "user-29"
+
+    def test_truncate_preserves_tool_messages_within_turn(self):
+        agent = OpenAIAgent(name="test")
+        # Build history with tool calls in a turn
+        history = []
+        for i in range(MAX_TURNS + 2):
+            history.append({"role": "user", "content": f"user-{i}"})
+            if i == MAX_TURNS + 1:
+                # Last turn has tool calls
+                history.append({"role": "assistant", "content": None, "tool_calls": [{"id": "tc1"}]})
+                history.append({"role": "tool", "content": "tool-result", "tool_call_id": "tc1"})
+            history.append({"role": "assistant", "content": f"assistant-{i}"})
+
+        agent.set_messages(chat_id=100, messages=history)
+        agent.truncate_history(chat_id=100)
+        msgs = agent.get_messages(chat_id=100)
+
+        user_msgs = [m for m in msgs if m["role"] == "user"]
+        assert len(user_msgs) == MAX_TURNS
+        # Tool messages from the last turn should be preserved
+        tool_msgs = [m for m in msgs if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+
+    def test_no_truncation_when_under_limit(self):
+        agent = OpenAIAgent(name="test")
+        for i in range(3):
+            agent.set_messages(
+                chat_id=100,
+                messages=agent.get_messages(chat_id=100)
+                + [
+                    {"role": "user", "content": f"user-{i}"},
+                    {"role": "assistant", "content": f"assistant-{i}"},
+                ],
+            )
+
+        agent.truncate_history(chat_id=100)
+        msgs = agent.get_messages(chat_id=100)
+        user_msgs = [m for m in msgs if m["role"] == "user"]
+        assert len(user_msgs) == 3
