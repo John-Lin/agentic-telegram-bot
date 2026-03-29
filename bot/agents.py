@@ -1,40 +1,42 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
-from agentize.model import get_openai_model
-from agentize.prompts.summary import INSTRUCTIONS
-from agentize.prompts.summary import Summary
-from agentize.tools.duckduckgo import duckduckgo_search
-from agentize.tools.firecrawl import map_tool
-from agentize.tools.markitdown import markitdown_scrape_tool
-from agentize.tools.telegraph import publish_page
-from agentize.utils import configure_langfuse
 from agents import Agent
 from agents import Runner
 from agents import TResponseInputItem
 from agents.mcp import MCPServerStdio
+from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
+from openai import AsyncAzureOpenAI
+from openai import AsyncOpenAI
+
+
+def _get_model() -> OpenAIChatCompletionsModel:
+    """Create an OpenAI model from environment variables."""
+    model_name = os.getenv("OPENAI_MODEL", "gpt-4.1")
+
+    if os.getenv("AZURE_OPENAI_API_KEY"):
+        client = AsyncAzureOpenAI(
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            api_version=os.getenv("OPENAI_API_VERSION", "2025-03-01-preview"),
+        )
+    else:
+        client = AsyncOpenAI()
+
+    return OpenAIChatCompletionsModel(model=model_name, openai_client=client)
 
 
 class OpenAIAgent:
-    """A wrapper for OpenAI Agent"""
+    """A wrapper for OpenAI Agent with MCP server support."""
 
     def __init__(self, name: str, mcp_servers: list | None = None) -> None:
-        configure_langfuse("Telegram Bot")
-        self.summary_agent = Agent(
-            name="summary_agent",
-            instructions=INSTRUCTIONS.format(lang="台灣中文", length=1_000),
-            model=get_openai_model(model="o3-mini", api_type="chat_completions"),
-            output_type=Summary,
-        )
-
-        self.main_agent = Agent(
+        self.agent = Agent(
             name=name,
-            instructions="You are a helpful assistant. Handoff to the summary agent when you need to summarize.",
-            model=get_openai_model(model="gpt-4.1"),
-            tools=[markitdown_scrape_tool, map_tool, duckduckgo_search, publish_page],
-            handoffs=[self.summary_agent],
+            instructions="You are a helpful assistant.",
+            model=_get_model(),
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
         )
         self.name = name
@@ -56,10 +58,10 @@ class OpenAIAgent:
         return cls(name, mcp_servers)
 
     async def connect(self) -> None:
-        for mcp_server in self.main_agent.mcp_servers:
+        for mcp_server in self.agent.mcp_servers:
             try:
                 await mcp_server.connect()
-                logging.info(f"Server {mcp_server.name} connecting")
+                logging.info(f"Server {mcp_server.name} connected")
             except Exception as e:
                 logging.error(f"Error during connecting of server {mcp_server.name}: {e}")
 
@@ -71,16 +73,13 @@ class OpenAIAgent:
                 "content": message,
             }
         )
-        result = await Runner.run(self.main_agent, input=self.messages)
+        result = await Runner.run(self.agent, input=self.messages)
         self.messages = result.to_input_list()
-        # Add conversation history (last 5 messages)
-        self.messages = self.messages[-5:]
         return str(result.final_output)
 
     async def cleanup(self) -> None:
         """Clean up resources."""
-        # Clean up servers
-        for mcp_server in self.main_agent.mcp_servers:
+        for mcp_server in self.agent.mcp_servers:
             try:
                 await mcp_server.cleanup()
                 logging.info(f"Server {mcp_server.name} cleaned up")

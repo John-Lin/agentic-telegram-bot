@@ -1,20 +1,12 @@
 # agentic-telegram-bot
-A simple Telegram bot that uses the OpenAI Agents SDK to interact with the Model Context Protocol (MCP) server.
+A simple Telegram bot that uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) to interact with [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers.
 
-## Docker
+## Features
 
-```
-# Build the Docker image
-docker build -t agentic-telegram-bot .
-
-# Run the Docker container
-docker run -d \
-  --name telegent \
-  -e BOT_USERNAME="" \
-  -e TELEGRAM_BOT_TOKEN="" \
-  -e OPENAI_API_KEY="" \
-  -e OPENAI_MODEL="gpt-4.1" johnlin/agentic-telegram-bot
-```
+- Private chat and group chat support
+- Pairing-based allowlist — only authorized users can interact with the bot
+- Connects to any MCP server via `servers_config.json`
+- Supports both OpenAI and Azure OpenAI endpoints
 
 ## Install Dependencies
 
@@ -22,7 +14,7 @@ docker run -d \
 uv sync
 ```
 
-## Telegram Bot setup
+## Telegram Bot Setup
 
 1. Create a new bot using the [BotFather](https://t.me/botfather) on Telegram.
 2. Get the bot token and username.
@@ -30,42 +22,110 @@ uv sync
    - Use the command `/setprivacy` in the BotFather chat.
    - Select your bot.
    - Choose "Disable" to allow the bot to receive all messages in groups.
-
 4. Set the bot token and username in the `.envrc` or `.env` file.
 
 ## Environment Variables
 
-Create a `.envrc` file in the root directory of the project and add the following environment variables:
+Create a `.envrc` or `.env` file in the root directory:
 
 ```
 # Telegram bot
-export BOT_USERNAME=""
+export BOT_USERNAME="@your_bot_username"
 export TELEGRAM_BOT_TOKEN=""
 
 # OpenAI API
 export OPENAI_API_KEY=""
 export OPENAI_MODEL="gpt-4.1"
-
-# Firecrawl API key for advanced scrape feature(Optional)
-FIRECRAWL_API_KEY=""
-
-# Langfuse API key for LLM debug use(Optional)
-LANGFUSE_PUBLIC_KEY=""
-LANGFUSE_SECRET_KEY=""
-LANGFUSE_HOST=""
 ```
 
-If you are using Azure OpenAI, you can set the following environment variables instead:
+If you are using Azure OpenAI, set these instead:
 
 ```
-AZURE_OPENAI_API_KEY=""
-AZURE_OPENAI_ENDPOINT="https://<myopenai>.azure.com/"
-OPENAI_MODEL="gpt-4.1"
-AZURE_OPENAI_API_VERSION="2025-03-01-preview"
+export AZURE_OPENAI_API_KEY=""
+export AZURE_OPENAI_ENDPOINT="https://<myopenai>.azure.com/"
+export OPENAI_MODEL="gpt-4.1"
+export OPENAI_API_VERSION="2025-03-01-preview"
+```
+
+## MCP Server Configuration
+
+Edit `servers_config.json` to add your MCP servers:
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "uvx",
+      "args": ["my-mcp-server"]
+    }
+  }
+}
+```
+
+For local MCP servers, use `uv --directory`:
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/my-server", "run", "my-entrypoint"]
+    }
+  }
+}
 ```
 
 ## Running the Bot
 
 ```bash
 uv run bot
+```
+
+## Access Control
+
+All access is managed via `allowlist.json` (auto-created, gitignored).
+
+### User Pairing (Private Chat)
+
+Private chat requires pairing. DM the bot any message to get a 6-character code, then confirm in your terminal:
+
+```bash
+uv run bot pair <CODE>
+```
+
+### Group Access
+
+Groups are blocked by default. Use the CLI to manage:
+
+```bash
+# Add a group (default: bot responds only to @mentions)
+uv run bot access group add <GROUP_ID>
+
+# Respond to all messages, not just @mentions
+uv run bot access group add <GROUP_ID> --no-mention
+
+# Restrict to specific members
+uv run bot access group add <GROUP_ID> --allow 111,222
+
+# Remove a group
+uv run bot access group remove <GROUP_ID>
+
+# List allowed groups
+uv run bot access group list
+```
+
+Group members do not need to pair individually — access is controlled at the group level.
+
+## Docker
+
+```bash
+docker build -t agentic-telegram-bot .
+
+docker run -d \
+  --name telegent \
+  -e BOT_USERNAME="@your_bot_username" \
+  -e TELEGRAM_BOT_TOKEN="" \
+  -e OPENAI_API_KEY="" \
+  -e OPENAI_MODEL="gpt-4.1" \
+  agentic-telegram-bot
 ```

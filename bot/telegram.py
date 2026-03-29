@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from telegram import Update
-
-# from telegram import ReplyParameters
-# from telegram.constants import ParseMode
 from telegram.ext import Application
 from telegram.ext import CommandHandler
 from telegram.ext import ContextTypes
@@ -14,6 +10,9 @@ from telegram.ext import MessageHandler
 from telegram.ext import filters
 
 from .agents import OpenAIAgent
+from .auth import create_pairing_code
+from .auth import get_group_config
+from .auth import is_allowed
 
 
 class TelegramMCPBot:
@@ -26,39 +25,37 @@ class TelegramMCPBot:
 
         self.bot_username = bot_username
         self.agent = openai_agent
-        self.conversations: dict[
-            str, dict[str, list[dict[str, str | Any | None]]]
-        ] = {}  # Store conversation context per channel
         self.application = Application.builder().token(token).build()
 
     async def run(self) -> None:
         # https://github.com/python-telegram-bot/python-telegram-bot/discussions/3310
-        # https://docs.python-telegram-bot.org/en/stable/telegram.ext.application.html#telegram.ext.Application.run_polling
-        # inits bot, update, persistence
         await self.application.initialize()
         await self.application.start()
         assert self.application.updater is not None, "Updater is None"
         await self.application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
         await self.initialize_agent()
 
-        # on different commands - answer in Telegram
         self.application.add_handler(CommandHandler("help", self.help_command))
 
-        # on non command i.e message - handle the message on Telegram
-        # Add a message handler to handle replies
-        self.application.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, self.handle_message))
-        self.application.add_handler(MessageHandler(filters.Mention(self.bot_username), self.handle_message))
+        # Private chat: respond to all text messages
+        self.application.add_handler(
+            MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, self.handle_private)
+        )
+        # Group chat: handle via group access control
+        self.application.add_handler(
+            MessageHandler(filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND, self.handle_group)
+        )
 
     async def cleanup(self) -> None:
         """Clean up resources."""
         try:
+            logging.info("Stopping bot application")
             assert self.application.updater is not None
             await self.application.updater.stop()
             await self.application.stop()
             await self.application.shutdown()
-            logging.info("Stopping bot application")
         except Exception as e:
-            logging.error(f"Error steop bot application: {e}")
+            logging.error(f"Error stop bot application: {e}")
 
     async def initialize_agent(self) -> None:
         """Initialize all MCP servers and discover tools."""
@@ -72,51 +69,64 @@ class TelegramMCPBot:
         """Send a message when the command /help is issued."""
         if update.message is None:
             return
-        # chat_id = update.message.chat_id
         await update.message.reply_text("Help!")
 
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._procress_message(update, context)
-
-    async def _procress_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Process incoming messages and generate responses."""
-
-        if update.message is None or update.effective_chat is None:
-            logging.warning("Update has no message or chat — ignored")
+    async def handle_private(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle private chat messages with pairing support."""
+        if update.message is None or update.message.text is None:
             return
 
-        chat_id = str(update.message.chat_id)
-        assert update.message.text is not None
-        user_text = update.message.text
+        user = update.message.from_user
+        if user is None:
+            return
 
-        # Get or create conversation context
-        if chat_id not in self.conversations:
-            self.conversations[chat_id] = {"messages": []}
+        if not is_allowed(user.id):
+            code = create_pairing_code(user.id, user.username or "")
+            await update.message.reply_text(
+                f"Your pairing code: {code}\n\n"
+                f"Run this in your terminal to complete pairing:\n"
+                f"  uv run bot pair {code}"
+            )
+            return
 
-        messages = []
+        await self._respond(update)
 
-        # Add user message to history
-        self.conversations[chat_id]["messages"].append({"role": "user", "content": user_text})
+    async def handle_group(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle group messages with group access control."""
+        if update.message is None or update.message.text is None or update.effective_chat is None:
+            return
 
-        # Add conversation history (last 5 messages)
-        if "messages" in self.conversations[chat_id]:
-            messages.extend(self.conversations[chat_id]["messages"][-5:])
+        user = update.message.from_user
+        if user is None:
+            return
 
-        logging.debug(self.conversations)
+        group_config = get_group_config(update.effective_chat.id)
+        if group_config is None:
+            return  # Group not allowed, silently ignore
 
+        # Check mention requirement
+        if group_config["require_mention"] and not (
+            update.message.entities
+            and any(
+                e.type == "mention" and update.message.text[e.offset : e.offset + e.length] == self.bot_username
+                for e in update.message.entities
+            )
+        ):
+            return
+
+        # Check allowed_members if configured
+        allowed_members = group_config["allowed_members"]
+        if allowed_members and user.id not in allowed_members:
+            return
+
+        await self._respond(update)
+
+    async def _respond(self, update: Update) -> None:
+        """Run agent and reply."""
+        assert update.message is not None and update.message.text is not None
         try:
-            # Get LLM response
-            asst_text = await self.agent.run(user_text)
-            # Add assistant response to conversation history
-            self.conversations[chat_id]["messages"].append({"role": "assistant", "content": asst_text})
+            asst_text = await self.agent.run(update.message.text)
             await update.message.reply_text(text=asst_text)
-            #     # Send the response in a quote block
-            #     await context.bot.send_message(
-            #         chat_id=update.effective_chat.id,
-            #         text=f"<blockquote expandable>{asst_text}</blockquote>",
-            #         parse_mode=ParseMode.HTML,
-            #         reply_parameters=ReplyParameters(message_id=update.message.message_id),
-            #     )
         except Exception as e:
             error_message = f"I'm sorry, I encountered an error: {str(e)}"
             logging.error(f"Error processing message: {e}", exc_info=True)
