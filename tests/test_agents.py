@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+from unittest.mock import create_autospec
+
+import pytest
+from agents.models.interface import Model
+
 from bot.agents import DEFAULT_INSTRUCTIONS
 from bot.agents import MAX_TURNS
 from bot.agents import OpenAIAgent
+
+
+@pytest.fixture(autouse=True)
+def _mock_model(monkeypatch):
+    """Prevent tests from constructing a real OpenAI client."""
+    monkeypatch.setattr("bot.agents._get_model", lambda: create_autospec(Model))
 
 
 class TestPerChatConversations:
