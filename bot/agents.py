@@ -21,6 +21,7 @@ DEFAULT_INSTRUCTIONS = (
 )
 
 MAX_TURNS = 25
+MCP_SESSION_TIMEOUT_SECONDS = 30.0
 
 
 def _get_model() -> OpenAIChatCompletionsModel:
@@ -88,7 +89,7 @@ class OpenAIAgent:
     def from_dict(cls, name: str, config: dict[str, Any]) -> OpenAIAgent:
         mcp_servers = [
             MCPServerStdio(
-                client_session_timeout_seconds=30.0,
+                client_session_timeout_seconds=MCP_SESSION_TIMEOUT_SECONDS,
                 params={
                     "command": mcp_srv["command"],
                     "args": mcp_srv.get("args", []),
