@@ -34,4 +34,6 @@ def markdown_to_telegram_html(text: str) -> str:
 
     Returns the converted text with trailing whitespace stripped.
     """
-    return _md(text).strip()
+    result = _md(text)
+    assert isinstance(result, str)
+    return result.strip()
