@@ -67,11 +67,8 @@ class TelegramMCPBot:
 
     async def initialize_agent(self) -> None:
         """Initialize all MCP servers and discover tools."""
-        try:
-            await self.agent.connect()
-            logging.info(f"Initialized agent {self.agent.name} with tools")
-        except Exception as e:
-            logging.error(f"Failed to initialize agent {self.agent.name}: {e}")
+        await self.agent.connect()
+        logging.info(f"Initialized agent {self.agent.name}")
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a message when the command /help is issued."""
@@ -94,12 +91,12 @@ class TelegramMCPBot:
         if user is None:
             return
 
-        policy = get_dm_policy()
+        policy = await asyncio.to_thread(get_dm_policy)
 
         if policy == "disabled":
             return
 
-        if is_allowed(user.id):
+        if await asyncio.to_thread(is_allowed, user.id):
             await self._respond(update)
             return
 
@@ -108,7 +105,7 @@ class TelegramMCPBot:
             return  # Silent drop
 
         # policy == "pairing"
-        code = create_pairing_code(user.id, user.username or "")
+        code = await asyncio.to_thread(create_pairing_code, user.id, user.username or "")
         await update.message.reply_text(
             f"Your pairing code: {code}\n\n"
             f"Run this in your terminal to complete pairing:\n  uv run bot access pair {code}"
@@ -123,10 +120,7 @@ class TelegramMCPBot:
         if user is None:
             return
 
-        if get_dm_policy() == "disabled":
-            return
-
-        group_config = get_group_config(update.effective_chat.id)
+        group_config = await asyncio.to_thread(get_group_config, update.effective_chat.id)
         if group_config is None:
             return  # Group not configured, silently ignore
 
@@ -138,7 +132,8 @@ class TelegramMCPBot:
         elif group_config["requireMention"]:
             # Any member can trigger, but must mention
             has_mention = update.message.entities and any(
-                e.type == "mention" and update.message.text[e.offset : e.offset + e.length] == self.bot_username
+                e.type == "mention"
+                and update.message.text[e.offset : e.offset + e.length].lstrip("@") == self.bot_username.lstrip("@")
                 for e in update.message.entities
             )
             if not has_mention:
@@ -153,8 +148,8 @@ class TelegramMCPBot:
         assert update.message is not None
         try:
             while True:
-                await asyncio.sleep(self.TYPING_INTERVAL_SECONDS)
                 await update.message.chat.send_action(ChatAction.TYPING)
+                await asyncio.sleep(self.TYPING_INTERVAL_SECONDS)
         except asyncio.CancelledError:
             pass
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -56,6 +57,7 @@ class OpenAIAgent:
         )
         self.name = name
         self._conversations: dict[int, list[TResponseInputItem]] = {}
+        self._locks: dict[int, asyncio.Lock] = {}
 
     def get_messages(self, chat_id: int) -> list[TResponseInputItem]:
         return self._conversations.get(chat_id, [])
@@ -89,8 +91,8 @@ class OpenAIAgent:
                 client_session_timeout_seconds=30.0,
                 params={
                     "command": mcp_srv["command"],
-                    "args": mcp_srv["args"],
-                    "env": mcp_srv.get("env", {}),
+                    "args": mcp_srv.get("args", []),
+                    "env": mcp_srv.get("env"),
                 },
             )
             for mcp_srv in config.get("mcpServers", {}).values()
@@ -103,16 +105,28 @@ class OpenAIAgent:
             try:
                 await mcp_server.connect()
                 logging.info(f"Server {mcp_server.name} connected")
-            except Exception as e:
-                logging.error(f"Error during connecting of server {mcp_server.name}: {e}")
+            except Exception:
+                logging.warning(
+                    f"MCP server {mcp_server.name} failed to connect — bot will run without its tools", exc_info=True
+                )
 
     async def run(self, chat_id: int, message: str) -> str:
-        """Run a workflow starting at the given agent."""
-        self.append_user_message(chat_id, message)
-        result = await Runner.run(self.agent, input=self.get_messages(chat_id))
-        self.set_messages(chat_id, result.to_input_list())
-        self.truncate_history(chat_id)
-        return str(result.final_output)
+        """Run a workflow starting at the given agent.
+
+        A per-chat async lock ensures that when two messages arrive for the
+        same chat in quick succession, they are processed sequentially.
+        Without the lock, the second ``await Runner.run`` could start before
+        the first one finishes, and whichever completes last would overwrite
+        the conversation history — silently dropping the other message and
+        its reply.  Different chats are unaffected and still run in parallel.
+        """
+        lock = self._locks.setdefault(chat_id, asyncio.Lock())
+        async with lock:
+            history = self.get_messages(chat_id) + [{"role": "user", "content": message}]
+            result = await Runner.run(self.agent, input=history)
+            self.set_messages(chat_id, result.to_input_list())
+            self.truncate_history(chat_id)
+            return str(result.final_output)
 
     async def cleanup(self) -> None:
         """Clean up resources."""
