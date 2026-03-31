@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import collections
 import logging
 import os
 from typing import Any
@@ -22,7 +21,6 @@ DEFAULT_INSTRUCTIONS = (
 )
 
 MAX_TURNS = 25
-MAX_CHATS = 200
 MCP_SESSION_TIMEOUT_SECONDS = 30.0
 
 
@@ -59,30 +57,19 @@ class OpenAIAgent:
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
         )
         self.name = name
-        self._conversations: collections.OrderedDict[int, list[TResponseInputItem]] = collections.OrderedDict()
+        self._conversations: dict[int, list[TResponseInputItem]] = {}
         self._locks: dict[int, asyncio.Lock] = {}
-
-    def _evict_oldest(self) -> None:
-        """Remove the least-recently-used chat when over MAX_CHATS."""
-        while len(self._conversations) > MAX_CHATS:
-            evicted_id, _ = self._conversations.popitem(last=False)
-            self._locks.pop(evicted_id, None)
 
     def get_messages(self, chat_id: int) -> list[TResponseInputItem]:
         return self._conversations.get(chat_id, [])
 
     def set_messages(self, chat_id: int, messages: list[TResponseInputItem]) -> None:
-        # Move to end on update so recently-active chats survive eviction
         self._conversations[chat_id] = messages
-        self._conversations.move_to_end(chat_id)
-        self._evict_oldest()
 
     def append_user_message(self, chat_id: int, message: str) -> None:
         if chat_id not in self._conversations:
             self._conversations[chat_id] = []
         self._conversations[chat_id].append({"role": "user", "content": message})
-        self._conversations.move_to_end(chat_id)
-        self._evict_oldest()
 
     def truncate_history(self, chat_id: int) -> None:
         """Keep only the last MAX_TURNS turns of conversation history.
