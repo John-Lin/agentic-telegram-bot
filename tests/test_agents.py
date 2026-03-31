@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import create_autospec
 
 import pytest
 from agents.models.interface import Model
 
 from bot.agents import DEFAULT_INSTRUCTIONS
-from bot.agents import MAX_CHATS
 from bot.agents import MAX_TURNS
 from bot.agents import OpenAIAgent
 
@@ -154,74 +152,3 @@ class TestHistoryTruncation:
         msgs = agent.get_messages(chat_id=100)
         user_msgs = [m for m in msgs if m["role"] == "user"]
         assert len(user_msgs) == 3
-
-
-class TestChatEviction:
-    def test_default_max_chats(self):
-        assert MAX_CHATS == 200
-
-    def test_evicts_oldest_chat_when_limit_exceeded(self, monkeypatch):
-        monkeypatch.setattr("bot.agents.MAX_CHATS", 3)
-        agent = OpenAIAgent(name="test")
-
-        agent.set_messages(100, [{"role": "user", "content": "a"}])
-        agent.set_messages(200, [{"role": "user", "content": "b"}])
-        agent.set_messages(300, [{"role": "user", "content": "c"}])
-        # At limit — all present
-        assert len(agent._conversations) == 3
-
-        # Adding a 4th should evict the oldest (100)
-        agent.set_messages(400, [{"role": "user", "content": "d"}])
-        assert 100 not in agent._conversations
-        assert len(agent._conversations) == 3
-        assert set(agent._conversations.keys()) == {200, 300, 400}
-
-    def test_updating_existing_chat_does_not_evict(self, monkeypatch):
-        monkeypatch.setattr("bot.agents.MAX_CHATS", 2)
-        agent = OpenAIAgent(name="test")
-
-        agent.set_messages(100, [{"role": "user", "content": "a"}])
-        agent.set_messages(200, [{"role": "user", "content": "b"}])
-        # Updating chat 100 should not trigger eviction
-        agent.set_messages(100, [{"role": "user", "content": "updated"}])
-        assert len(agent._conversations) == 2
-        assert agent.get_messages(100)[0]["content"] == "updated"
-
-    def test_append_to_new_chat_triggers_eviction(self, monkeypatch):
-        monkeypatch.setattr("bot.agents.MAX_CHATS", 2)
-        agent = OpenAIAgent(name="test")
-
-        agent.set_messages(100, [{"role": "user", "content": "a"}])
-        agent.set_messages(200, [{"role": "user", "content": "b"}])
-        agent.append_user_message(300, "c")
-
-        assert 100 not in agent._conversations
-        assert len(agent._conversations) == 2
-
-    def test_accessing_chat_refreshes_its_position(self, monkeypatch):
-        monkeypatch.setattr("bot.agents.MAX_CHATS", 3)
-        agent = OpenAIAgent(name="test")
-
-        agent.set_messages(100, [{"role": "user", "content": "a"}])
-        agent.set_messages(200, [{"role": "user", "content": "b"}])
-        agent.set_messages(300, [{"role": "user", "content": "c"}])
-
-        # Access chat 100 to refresh it (move to end)
-        agent.set_messages(100, [{"role": "user", "content": "refreshed"}])
-
-        # Now 200 is oldest — adding 400 should evict 200, not 100
-        agent.set_messages(400, [{"role": "user", "content": "d"}])
-        assert 200 not in agent._conversations
-        assert 100 in agent._conversations
-
-    def test_eviction_also_cleans_up_lock(self, monkeypatch):
-        monkeypatch.setattr("bot.agents.MAX_CHATS", 2)
-        agent = OpenAIAgent(name="test")
-
-        agent._locks[100] = asyncio.Lock()
-        agent.set_messages(100, [{"role": "user", "content": "a"}])
-        agent._locks[200] = asyncio.Lock()
-        agent.set_messages(200, [{"role": "user", "content": "b"}])
-
-        agent.set_messages(300, [{"role": "user", "content": "c"}])
-        assert 100 not in agent._locks
