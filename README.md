@@ -1,12 +1,17 @@
 # agentic-telegram-bot
+
 A simple Telegram bot that uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) to interact with [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers.
+
+See also: [agentic-slackbot](https://github.com/John-Lin/agentic-slackbot) — a similar demo bot for Slack.
 
 ## Features
 
 - Private chat and group chat support
 - Configurable DM policy (pairing / allowlist / disabled)
 - Connects to any MCP server via `servers_config.json`
-- Supports both OpenAI and Azure OpenAI endpoints
+- Supports OpenAI, Azure OpenAI endpoints
+- Per-conversation history with automatic truncation
+- Per-user rate limiting
 
 ## Install Dependencies
 
@@ -152,5 +157,6 @@ docker run -d \
   -e TELEGRAM_BOT_TOKEN="" \
   -e OPENAI_API_KEY="" \
   -e OPENAI_MODEL="gpt-4.1" \
+  -v /path/to/servers_config.json:/app/servers_config.json \
   agentic-telegram-bot
 ```
