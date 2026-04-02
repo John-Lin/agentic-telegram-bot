@@ -52,9 +52,9 @@ export OPENAI_MODEL="gpt-4.1"
 export OPENAI_API_VERSION="2025-03-01-preview"
 ```
 
-## MCP Server Configuration
+## MCP Server Configuration (Optional)
 
-Edit `servers_config.json` to add your MCP servers:
+Create a `servers_config.json` file to add your MCP servers. If this file is not provided, the bot starts with no MCP servers configured.
 
 ```json
 {
@@ -63,6 +63,21 @@ Edit `servers_config.json` to add your MCP servers:
     "my-server": {
       "command": "uvx",
       "args": ["my-mcp-server"]
+    }
+  }
+}
+```
+
+For HTTP-based MCP servers (Streamable HTTP), use `httpUrl`:
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "httpUrl": "https://mcp.example.com/mcp",
+      "headers": {
+        "Accept": "application/json, text/event-stream"
+      }
     }
   }
 }
@@ -151,6 +166,19 @@ Group members do not need to pair individually — access is controlled at the g
 ```bash
 docker build -t agentic-telegram-bot .
 
+docker run -d \
+  --name telegent \
+  -e BOT_USERNAME="@your_bot_username" \
+  -e TELEGRAM_BOT_TOKEN="" \
+  -e OPENAI_API_KEY="" \
+  -e OPENAI_MODEL="gpt-4.1" \
+  -v /path/to/access.json:/app/access.json \
+  agentic-telegram-bot
+```
+
+To use MCP servers, mount your config file:
+
+```bash
 docker run -d \
   --name telegent \
   -e BOT_USERNAME="@your_bot_username" \
