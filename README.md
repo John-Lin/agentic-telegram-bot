@@ -158,5 +158,6 @@ docker run -d \
   -e OPENAI_API_KEY="" \
   -e OPENAI_MODEL="gpt-4.1" \
   -v /path/to/servers_config.json:/app/servers_config.json \
+  -v /path/to/access.json:/app/access.json \
   agentic-telegram-bot
 ```
