@@ -9,20 +9,9 @@ from mistune_telegram import TelegramHTMLRenderer
 
 
 class _OrderedListRenderer(TelegramHTMLRenderer):
-    """Preserve ordered list numbering instead of converting to dashes."""
+    """Render ordered lists as bullets for Telegram readability."""
 
     def list(self, text: str, ordered: bool, **attrs: Any) -> str:
-        if ordered:
-            lines = text.split("\n")
-            result: list[str] = []
-            counter = 0
-            for line in lines:
-                if line.startswith("- "):
-                    counter += 1
-                    result.append(f"{counter}. {line[2:]}")
-                else:
-                    result.append(line)
-            text = "\n".join(result)
         return text + "\n"
 
 

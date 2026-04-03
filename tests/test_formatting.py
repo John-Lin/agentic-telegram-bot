@@ -30,18 +30,29 @@ class TestBasicFormatting:
 
 
 class TestOrderedList:
-    def test_preserves_numbers(self) -> None:
+    def test_converts_ordered_list_to_bullets(self) -> None:
         md = "1. first\n2. second\n3. third"
         result = markdown_to_telegram_html(md)
-        assert "1. first" in result
-        assert "2. second" in result
-        assert "3. third" in result
+        assert "1. first" not in result
+        assert "2. second" not in result
+        assert "3. third" not in result
+        assert "- first" in result
+        assert "- second" in result
+        assert "- third" in result
 
     def test_unordered_list_unchanged(self) -> None:
         md = "- apple\n- banana"
         result = markdown_to_telegram_html(md)
         assert "- apple" in result
         assert "- banana" in result
+
+    def test_complex_ordered_list_falls_back_to_bullets(self) -> None:
+        md = "1. OpenAI SDK\n   - time\n   - point\n2. MCP protocol\n   - time\n   - point"
+        result = markdown_to_telegram_html(md)
+        assert "1. OpenAI SDK" not in result
+        assert "2. MCP protocol" not in result
+        assert "- OpenAI SDK" in result
+        assert "- MCP protocol" in result
 
 
 class TestHtmlEscaping:
