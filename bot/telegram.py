@@ -138,7 +138,7 @@ class TelegramMCPBot:
             # Allow if this message is a reply to a tracked message in the chain
             reply_to = update.message.reply_to_message
             in_reply_chain = reply_to is not None and reply_to.message_id in self._reply_chains.get(
-                update.effective_chat.id, set()
+                update.effective_chat.id, deque()
             )
             if not in_reply_chain:
                 # Any member can trigger, but must mention
