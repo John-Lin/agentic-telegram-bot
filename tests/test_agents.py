@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import pytest
 from agents.models.interface import Model
+from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
+from agents.models.openai_responses import OpenAIResponsesModel
 
 from bot.agents import DEFAULT_INSTRUCTIONS
 from bot.agents import MAX_TURNS
@@ -50,6 +52,33 @@ class TestGetModel:
             _get_model()
             mock_openai.assert_called_once()
             mock_azure.assert_not_called()
+
+    def test_returns_responses_model_by_default(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_TYPE", raising=False)
+        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
+
+        with patch("bot.agents.AsyncOpenAI", return_value=MagicMock()):
+            model = _get_model()
+        assert isinstance(model, OpenAIResponsesModel)
+
+    def test_returns_responses_model_when_api_type_is_responses(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_TYPE", "responses")
+        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
+
+        with patch("bot.agents.AsyncOpenAI", return_value=MagicMock()):
+            model = _get_model()
+        assert isinstance(model, OpenAIResponsesModel)
+
+    def test_returns_chat_completions_model_when_api_type_is_chat_completions(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_TYPE", "chat_completions")
+        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
+
+        with patch("bot.agents.AsyncOpenAI", return_value=MagicMock()):
+            model = _get_model()
+        assert isinstance(model, OpenAIChatCompletionsModel)
 
 
 class TestPerChatConversations:
