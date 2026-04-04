@@ -153,7 +153,7 @@ class TestInstructions:
 
 class TestHistoryTruncation:
     def test_default_max_turns(self):
-        assert MAX_TURNS == 25
+        assert MAX_TURNS == 10
 
     def test_truncate_keeps_recent_turns(self):
         agent = OpenAIAgent(name="test")
@@ -171,11 +171,11 @@ class TestHistoryTruncation:
         agent.truncate_history(chat_id=100)
         msgs = agent.get_messages(chat_id=100)
 
-        # Should keep last 25 turns = 50 messages (user+assistant each)
+        # Should keep last MAX_TURNS turns (user+assistant each)
         user_msgs = [m for m in msgs if m["role"] == "user"]
         assert len(user_msgs) == MAX_TURNS
-        # Oldest kept should be turn 5 (0-4 dropped)
-        assert user_msgs[0]["content"] == "user-5"
+        # Oldest kept should be turn (30 - MAX_TURNS)
+        assert user_msgs[0]["content"] == f"user-{30 - MAX_TURNS}"
         # Most recent should be turn 29
         assert user_msgs[-1]["content"] == "user-29"
 

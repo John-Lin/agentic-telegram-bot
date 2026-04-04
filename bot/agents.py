@@ -22,7 +22,7 @@ DEFAULT_INSTRUCTIONS = (
     "Keep responses concise and well-structured for mobile reading."
 )
 
-MAX_TURNS = 25
+MAX_TURNS = 10
 MCP_SESSION_TIMEOUT_SECONDS = 30.0
 
 
