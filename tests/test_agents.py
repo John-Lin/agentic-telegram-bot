@@ -5,6 +5,7 @@ from unittest.mock import create_autospec
 from unittest.mock import patch
 
 import pytest
+from agents import ShellTool
 from agents.mcp import MCPServerStdio
 from agents.mcp import MCPServerStreamableHttp
 from agents.models.interface import Model
@@ -12,8 +13,10 @@ from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from agents.models.openai_responses import OpenAIResponsesModel
 
 from bot.agents import MAX_TURNS
+from bot.agents import SHELL_TIMEOUT
 from bot.agents import OpenAIAgent
 from bot.agents import _get_model
+from bot.agents import _shell_executor
 
 
 @pytest.fixture
@@ -231,3 +234,131 @@ class TestHistoryTruncation:
         msgs = agent.get_messages(chat_id=100)
         user_msgs = [m for m in msgs if m["role"] == "user"]
         assert len(user_msgs) == 3
+
+
+def _make_shell_request(
+    command: list[str],
+    env: dict | None = None,
+    cwd: str | None = None,
+    timeout_ms: int | None = None,
+):
+    """Build a mock LocalShellCommandRequest."""
+    action = MagicMock()
+    action.command = command
+    action.env = env or {}
+    action.working_directory = cwd
+    action.timeout_ms = timeout_ms
+    request = MagicMock()
+    request.data.action = action
+    return request
+
+
+class TestShellExecutor:
+    def test_constant_is_30_seconds(self):
+        assert SHELL_TIMEOUT == 30.0
+
+    @pytest.mark.anyio
+    async def test_returns_stdout(self):
+        request = _make_shell_request(["echo", "hello"])
+        result = await _shell_executor(request)
+        assert "hello" in result
+
+    @pytest.mark.anyio
+    async def test_stderr_merged_into_output(self):
+        request = _make_shell_request(["bash", "-c", "echo err >&2"])
+        result = await _shell_executor(request)
+        assert "err" in result
+
+    @pytest.mark.anyio
+    async def test_uses_working_directory(self):
+        request = _make_shell_request(["pwd"], cwd="/tmp")
+        result = await _shell_executor(request)
+        assert "/tmp" in result
+
+    @pytest.mark.anyio
+    async def test_times_out_and_returns_message(self, monkeypatch):
+        monkeypatch.setattr("bot.agents.SHELL_TIMEOUT", 0.05)
+        request = _make_shell_request(["sleep", "10"])
+        result = await _shell_executor(request)
+        assert "timed out" in result.lower()
+
+    @pytest.mark.anyio
+    async def test_timeout_ms_from_request_overrides_default(self, monkeypatch):
+        monkeypatch.setattr("bot.agents.SHELL_TIMEOUT", 30.0)
+        # 50ms timeout from request — sleep 10s should time out
+        request = _make_shell_request(["sleep", "10"], timeout_ms=50)
+        result = await _shell_executor(request)
+        assert "timed out" in result.lower()
+
+
+class TestFromDictShellSkills:
+    def test_no_shell_skills_when_config_missing(self):
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
+        assert len(shell_tools) == 0
+
+    def test_shell_tool_added_when_skills_configured(self, tmp_path):
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: A test skill\n---\n")
+
+        config = {
+            "mcpServers": {},
+            "shellSkills": [{"name": "my-skill", "path": str(skill_dir)}],
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
+        assert len(shell_tools) == 1
+
+    def test_skill_description_read_from_skill_md(self, tmp_path):
+        skill_dir = tmp_path / "obs"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: obs\ndescription: Interact with Obsidian\n---\n# Content\n")
+        config = {
+            "mcpServers": {},
+            "shellSkills": [{"name": "obs", "path": str(skill_dir)}],
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        shell_tool = next(t for t in agent.agent.tools if isinstance(t, ShellTool))
+        skill = shell_tool.environment["skills"][0]
+        assert skill["description"] == "Interact with Obsidian"
+
+    def test_tilde_expanded_in_path(self, tmp_path, monkeypatch):
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        config = {
+            "mcpServers": {},
+            "shellSkills": [{"name": "s", "path": "~/skill"}],
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        shell_tool = next(t for t in agent.agent.tools if isinstance(t, ShellTool))
+        assert shell_tool.environment["skills"][0]["path"] == str(skill_dir)
+
+    def test_multiple_skills_all_mounted(self, tmp_path):
+        skills = []
+        for name in ["skill-a", "skill-b"]:
+            d = tmp_path / name
+            d.mkdir()
+            (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: desc\n---\n")
+            skills.append({"name": name, "path": str(d)})
+
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}, "shellSkills": skills})
+        shell_tool = next(t for t in agent.agent.tools if isinstance(t, ShellTool))
+        assert len(shell_tool.environment["skills"]) == 2
+
+    def test_mcp_servers_and_shell_skills_coexist(self, tmp_path):
+        skill_dir = tmp_path / "s"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n")
+
+        config = {
+            "mcpServers": {"my-mcp": {"command": "uvx", "args": ["something"]}},
+            "shellSkills": [{"name": "s", "path": str(skill_dir)}],
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        assert len(agent.agent.mcp_servers) == 1
+        shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
+        assert len(shell_tools) == 1

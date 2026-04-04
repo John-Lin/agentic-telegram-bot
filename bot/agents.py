@@ -8,6 +8,8 @@ from typing import Any
 
 from agents import Agent
 from agents import Runner
+from agents import ShellTool
+from agents import ShellToolLocalSkill
 from agents import TResponseInputItem
 from agents.mcp import MCPServerStdio
 from agents.mcp import MCPServerStreamableHttp
@@ -20,6 +22,7 @@ INSTRUCTIONS_FILE = Path("instructions.md")
 
 MAX_TURNS = 10
 MCP_SESSION_TIMEOUT_SECONDS = 30.0
+SHELL_TIMEOUT = 30.0
 
 set_tracing_disabled(True)
 
@@ -58,20 +61,79 @@ def _get_model() -> OpenAIResponsesModel | OpenAIChatCompletionsModel:
     return OpenAIResponsesModel(model=model_name, openai_client=client)
 
 
+def _read_skill_description(skill_dir: Path) -> str:
+    """Read the description field from a skill's SKILL.md frontmatter.
+
+    Returns an empty string if the file is missing or has no description.
+    """
+    skill_md = skill_dir / "SKILL.md"
+    try:
+        content = skill_md.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logging.warning("SKILL.md not found in %s", skill_dir)
+        return ""
+
+    # Parse YAML frontmatter between --- delimiters
+    if not content.startswith("---"):
+        return ""
+    end = content.find("\n---", 3)
+    if end == -1:
+        return ""
+    frontmatter = content[3:end]
+    for line in frontmatter.splitlines():
+        if line.startswith("description:"):
+            return line[len("description:") :].strip()
+    return ""
+
+
+async def _shell_executor(request: Any) -> str:
+    """Execute a shell command from a LocalShellCommandRequest.
+
+    Uses timeout_ms from the request if provided, otherwise falls back
+    to SHELL_TIMEOUT seconds.
+    """
+    action = request.data.action
+    command: list[str] = action.command
+    env: dict[str, str] = action.env or {}
+    cwd: str | None = action.working_directory
+    timeout_ms: int | None = action.timeout_ms
+
+    timeout = (timeout_ms / 1000.0) if timeout_ms is not None else SHELL_TIMEOUT
+
+    merged_env = {**os.environ, **env}
+
+    proc = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        env=merged_env,
+        cwd=cwd,
+    )
+    try:
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return stdout.decode("utf-8", errors="replace")
+    except TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        return f"Command timed out after {timeout}s"
+
+
 class OpenAIAgent:
-    """A wrapper for OpenAI Agent with MCP server support."""
+    """A wrapper for OpenAI Agent with MCP server and local shell skill support."""
 
     def __init__(
         self,
         name: str,
         instructions: str,
         mcp_servers: list | None = None,
+        tools: list | None = None,
     ) -> None:
         self.agent = Agent(
             name=name,
             instructions=instructions,
             model=_get_model(),
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
+            tools=(tools if tools is not None else []),
         )
         self.name = name
         self._conversations: dict[int, list[TResponseInputItem]] = {}
@@ -127,8 +189,24 @@ class OpenAIAgent:
                         },
                     )
                 )
+        tools: list[Any] = []
+        skill_configs = config.get("shellSkills", [])
+        if skill_configs:
+            skills: list[ShellToolLocalSkill] = []
+            for skill_cfg in skill_configs:
+                skill_path = Path(os.path.expanduser(skill_cfg["path"]))
+                description = _read_skill_description(skill_path)
+                skills.append(
+                    ShellToolLocalSkill(
+                        name=skill_cfg["name"],
+                        description=description,
+                        path=str(skill_path),
+                    )
+                )
+            tools.append(ShellTool(executor=_shell_executor, environment={"type": "local", "skills": skills}))
+
         instructions = _load_instructions()
-        return cls(name, instructions=instructions, mcp_servers=mcp_servers)
+        return cls(name, instructions=instructions, mcp_servers=mcp_servers, tools=tools)
 
     async def connect(self) -> None:
         for mcp_server in self.agent.mcp_servers:
