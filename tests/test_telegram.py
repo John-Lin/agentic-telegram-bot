@@ -1,6 +1,7 @@
 """Tests for Telegram bot command handlers."""
 
 import asyncio
+from collections import deque
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -262,7 +263,7 @@ class TestReplyChain:
     async def test_reply_to_tracked_message_triggers_without_mention(self, group_bot):
         """Reply to a tracked message should trigger bot without @mention."""
         config = {"requireMention": True, "allowFrom": []}
-        group_bot._reply_chains[-1001234] = {50}  # seed: message 50 is tracked
+        group_bot._reply_chains[-1001234] = deque([50])  # seed: message 50 is tracked
 
         update = _make_group_update(
             chat_id=-1001234, user_id=222, text="continue", message_id=51, reply_to_message_id=50
@@ -277,7 +278,7 @@ class TestReplyChain:
     async def test_reply_to_untracked_message_requires_mention(self, group_bot):
         """Reply to an untracked message should still require @mention."""
         config = {"requireMention": True, "allowFrom": []}
-        group_bot._reply_chains[-1001234] = {50}  # only message 50 is tracked
+        group_bot._reply_chains[-1001234] = deque([50])  # only message 50 is tracked
 
         update = _make_group_update(chat_id=-1001234, user_id=222, text="hello", message_id=51, reply_to_message_id=999)
 
@@ -290,7 +291,7 @@ class TestReplyChain:
     async def test_reply_chain_grows_on_each_turn(self, group_bot):
         """Each new reply in the chain adds both messages to the tracked set."""
         config = {"requireMention": True, "allowFrom": []}
-        group_bot._reply_chains[-1001234] = {10, 11}  # existing chain
+        group_bot._reply_chains[-1001234] = deque([10, 11])  # existing chain
 
         bot_reply = MagicMock()
         bot_reply.message_id = 13
@@ -307,10 +308,45 @@ class TestReplyChain:
         assert 13 in chain  # new bot reply
 
     @pytest.mark.anyio
+    async def test_reply_chain_evicts_oldest_when_full(self, group_bot):
+        """When chain exceeds MAX_REPLY_CHAIN_IDS, oldest IDs are evicted."""
+        from bot.telegram import MAX_REPLY_CHAIN_IDS
+
+        config = {"requireMention": True, "allowFrom": []}
+        chat_id = -1001234
+
+        # Seed chain to capacity with IDs 1..MAX_REPLY_CHAIN_IDS
+        group_bot._reply_chains[chat_id] = deque(range(1, MAX_REPLY_CHAIN_IDS + 1), maxlen=MAX_REPLY_CHAIN_IDS)
+
+        # Trigger one more turn: reply to the last tracked message
+        bot_reply = MagicMock()
+        bot_reply.message_id = MAX_REPLY_CHAIN_IDS + 2
+        update = _make_group_update(
+            chat_id=chat_id,
+            user_id=111,
+            text="overflow",
+            message_id=MAX_REPLY_CHAIN_IDS + 1,
+            reply_to_message_id=MAX_REPLY_CHAIN_IDS,  # reply to last tracked
+        )
+        update.message.reply_text = AsyncMock(return_value=bot_reply)
+
+        with patch("bot.telegram.get_group_config", return_value=config):
+            await group_bot.handle_group(update, MagicMock())
+
+        chain = group_bot._reply_chains[chat_id]
+        # Oldest IDs should have been evicted
+        assert 1 not in chain
+        assert 2 not in chain
+        # New IDs should be present
+        assert MAX_REPLY_CHAIN_IDS + 1 in chain
+        assert MAX_REPLY_CHAIN_IDS + 2 in chain
+        assert len(chain) == MAX_REPLY_CHAIN_IDS
+
+    @pytest.mark.anyio
     async def test_reply_chain_isolated_per_group(self, group_bot):
         """Reply chain from one group does not affect another group."""
         config = {"requireMention": True, "allowFrom": []}
-        group_bot._reply_chains[-1001111] = {50}  # only in group 1111
+        group_bot._reply_chains[-1001111] = deque([50])  # only in group 1111
 
         update = _make_group_update(chat_id=-1002222, user_id=222, text="hello", message_id=51, reply_to_message_id=50)
 

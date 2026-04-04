@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 
 from telegram import Message
 from telegram import Update
@@ -21,6 +22,8 @@ from .auth import is_allowed
 from .formatting import markdown_to_telegram_html
 from .ratelimit import RateLimiter
 
+MAX_REPLY_CHAIN_IDS = 10
+
 
 class TelegramMCPBot:
     def __init__(self, token: str | None, bot_username: str | None, openai_agent: OpenAIAgent) -> None:
@@ -34,7 +37,7 @@ class TelegramMCPBot:
         self.agent = openai_agent
         self.application = Application.builder().token(token).build()
         self.rate_limiter = RateLimiter()
-        self._reply_chains: dict[int, set[int]] = {}
+        self._reply_chains: dict[int, deque[int]] = {}
 
     async def run(self) -> None:
         # https://github.com/python-telegram-bot/python-telegram-bot/discussions/3310
@@ -150,9 +153,9 @@ class TelegramMCPBot:
         sent = await self._respond(update)
         if sent is not None:
             chat_id = update.effective_chat.id
-            chain = self._reply_chains.setdefault(chat_id, set())
-            chain.add(update.message.message_id)
-            chain.add(sent.message_id)
+            chain = self._reply_chains.setdefault(chat_id, deque(maxlen=MAX_REPLY_CHAIN_IDS))
+            chain.append(update.message.message_id)
+            chain.append(sent.message_id)
 
     TYPING_INTERVAL_SECONDS = 4
 
