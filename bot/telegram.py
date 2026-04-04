@@ -22,7 +22,7 @@ from .auth import is_allowed
 from .formatting import markdown_to_telegram_html
 from .ratelimit import RateLimiter
 
-MAX_REPLY_CHAIN_IDS = 10
+MAX_REPLY_CHAIN_IDS = 20
 
 
 class TelegramMCPBot:
