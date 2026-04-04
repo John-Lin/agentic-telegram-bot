@@ -27,10 +27,10 @@ MCP_SESSION_TIMEOUT_SECONDS = 30.0
 
 def _get_model() -> OpenAIChatCompletionsModel:
     """Create an OpenAI model from environment variables."""
-    model_name = os.getenv("OPENAI_MODEL", "gpt-4.1")
+    model_name = os.getenv("OPENAI_MODEL", "gpt-5.4")
 
     client: AsyncOpenAI
-    if os.getenv("AZURE_OPENAI_API_KEY"):
+    if os.getenv("AZURE_OPENAI_API_KEY") and os.getenv("AZURE_OPENAI_ENDPOINT"):
         client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
             azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],

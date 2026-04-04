@@ -40,7 +40,7 @@ export TELEGRAM_BOT_TOKEN=""
 
 # OpenAI API
 export OPENAI_API_KEY=""
-export OPENAI_MODEL="gpt-4.1"
+export OPENAI_MODEL="gpt-5.4"
 ```
 
 If you are using Azure OpenAI, set these instead:
@@ -48,7 +48,7 @@ If you are using Azure OpenAI, set these instead:
 ```
 export AZURE_OPENAI_API_KEY=""
 export AZURE_OPENAI_ENDPOINT="https://<myopenai>.azure.com/"
-export OPENAI_MODEL="gpt-4.1"
+export OPENAI_MODEL="gpt-5.4"
 export OPENAI_API_VERSION="2025-03-01-preview"
 ```
 
@@ -171,7 +171,7 @@ docker run -d \
   -e BOT_USERNAME="@your_bot_username" \
   -e TELEGRAM_BOT_TOKEN="" \
   -e OPENAI_API_KEY="" \
-  -e OPENAI_MODEL="gpt-4.1" \
+  -e OPENAI_MODEL="gpt-5.4" \
   -v /path/to/access.json:/app/access.json \
   agentic-telegram-bot
 ```
@@ -184,7 +184,7 @@ docker run -d \
   -e BOT_USERNAME="@your_bot_username" \
   -e TELEGRAM_BOT_TOKEN="" \
   -e OPENAI_API_KEY="" \
-  -e OPENAI_MODEL="gpt-4.1" \
+  -e OPENAI_MODEL="gpt-5.4" \
   -v /path/to/servers_config.json:/app/servers_config.json \
   -v /path/to/access.json:/app/access.json \
   agentic-telegram-bot
