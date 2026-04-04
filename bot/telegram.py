@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from telegram import Message
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.constants import ParseMode
@@ -33,6 +34,7 @@ class TelegramMCPBot:
         self.agent = openai_agent
         self.application = Application.builder().token(token).build()
         self.rate_limiter = RateLimiter()
+        self._reply_chains: dict[int, set[int]] = {}
 
     async def run(self) -> None:
         # https://github.com/python-telegram-bot/python-telegram-bot/discussions/3310
@@ -130,16 +132,27 @@ class TelegramMCPBot:
             if str(user.id) not in allow_from:
                 return
         elif group_config["requireMention"]:
-            # Any member can trigger, but must mention
-            has_mention = update.message.entities and any(
-                e.type == "mention"
-                and update.message.text[e.offset : e.offset + e.length].lstrip("@") == self.bot_username.lstrip("@")
-                for e in update.message.entities
+            # Allow if this message is a reply to a tracked message in the chain
+            reply_to = update.message.reply_to_message
+            in_reply_chain = reply_to is not None and reply_to.message_id in self._reply_chains.get(
+                update.effective_chat.id, set()
             )
-            if not has_mention:
-                return
+            if not in_reply_chain:
+                # Any member can trigger, but must mention
+                has_mention = update.message.entities and any(
+                    e.type == "mention"
+                    and update.message.text[e.offset : e.offset + e.length].lstrip("@") == self.bot_username.lstrip("@")
+                    for e in update.message.entities
+                )
+                if not has_mention:
+                    return
 
-        await self._respond(update)
+        sent = await self._respond(update)
+        if sent is not None:
+            chat_id = update.effective_chat.id
+            chain = self._reply_chains.setdefault(chat_id, set())
+            chain.add(update.message.message_id)
+            chain.add(sent.message_id)
 
     TYPING_INTERVAL_SECONDS = 4
 
@@ -153,26 +166,27 @@ class TelegramMCPBot:
         except asyncio.CancelledError:
             pass
 
-    async def _respond(self, update: Update) -> None:
-        """Run agent and reply."""
+    async def _respond(self, update: Update) -> Message | None:
+        """Run agent and reply. Returns the sent Message object, or None on failure."""
         assert update.message is not None and update.message.text is not None
         assert update.effective_chat is not None
         user = update.message.from_user
         if user is not None and not self.rate_limiter.is_allowed(user.id):
             await update.message.reply_text("Rate limit exceeded. Please try again later.")
-            return
+            return None
         await update.message.chat.send_action(ChatAction.TYPING)
         typing_task = asyncio.create_task(self._send_typing_loop(update))
         try:
             asst_text = await self.agent.run(update.effective_chat.id, update.message.text)
             html_text = markdown_to_telegram_html(asst_text)
             try:
-                await update.message.reply_text(text=html_text, parse_mode=ParseMode.HTML)
+                return await update.message.reply_text(text=html_text, parse_mode=ParseMode.HTML)
             except Exception:
                 logging.warning("Failed to send HTML-formatted message, falling back to plain text")
-                await update.message.reply_text(text=asst_text)
+                return await update.message.reply_text(text=asst_text)
         except Exception as e:
             logging.error(f"Error processing message: {e}", exc_info=True)
             await update.message.reply_text("I'm sorry, I encountered an error processing your request.")
+            return None
         finally:
             typing_task.cancel()
