@@ -5,5 +5,19 @@
       "command": "uvx",
       "args": ["yfmcp"]
     }
-  }
+  },
+  "shellSkills": [
+    {
+      "name": "obsidian-cli",
+      "path": "~/.claude/skills/obsidian-cli"
+    },
+    {
+      "name": "obsidian-markdown",
+      "path": "~/.claude/skills/obsidian-markdown"
+    },
+    {
+      "name": "obsidian-bases",
+      "path": "~/.claude/skills/obsidian-bases"
+    }
+  ]
 }
