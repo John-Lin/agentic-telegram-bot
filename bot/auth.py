@@ -107,14 +107,12 @@ def confirm_pairing(code: str) -> int | None:
     pending = _load_pending()
     if code not in pending:
         return None
-    entry = pending[code]
-    created_at = entry.get("created_at", 0)
-    if time.time() - created_at > PAIRING_CODE_TTL_SECONDS:
-        del pending[code]
+    entry = pending.pop(code)
+    if time.time() - entry.get("created_at", 0) > PAIRING_CODE_TTL_SECONDS:
         _save_pending(pending)
         return None
-    user_id = pending.pop(code)["user_id"]
     _save_pending(pending)
+    user_id = entry["user_id"]
     uid_str = str(user_id)
     with locked_auth() as data:
         if uid_str not in data["allowFrom"]:
