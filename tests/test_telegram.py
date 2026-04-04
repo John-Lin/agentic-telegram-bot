@@ -24,8 +24,6 @@ def respond_bot():
     agent = MagicMock()
     agent.run = AsyncMock(return_value="hello")
     bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", openai_agent=agent)
-    bot.rate_limiter = MagicMock()
-    bot.rate_limiter.is_allowed.return_value = True
     return bot
 
 
@@ -103,8 +101,6 @@ class TestHandleGroupAllowFrom:
         agent = MagicMock()
         agent.run = AsyncMock(return_value="response")
         bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", openai_agent=agent)
-        bot.rate_limiter = MagicMock()
-        bot.rate_limiter.is_allowed.return_value = True
         bot.TYPING_INTERVAL_SECONDS = 100  # prevent loop from firing
         return bot
 
@@ -237,8 +233,6 @@ class TestReplyChain:
         agent = MagicMock()
         agent.run = AsyncMock(return_value="response")
         bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", openai_agent=agent)
-        bot.rate_limiter = MagicMock()
-        bot.rate_limiter.is_allowed.return_value = True
         bot.TYPING_INTERVAL_SECONDS = 100
         return bot
 

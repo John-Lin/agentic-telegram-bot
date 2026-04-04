@@ -20,7 +20,6 @@ from .auth import get_dm_policy
 from .auth import get_group_config
 from .auth import is_allowed
 from .formatting import markdown_to_telegram_html
-from .ratelimit import RateLimiter
 
 MAX_REPLY_CHAIN_IDS = 20
 
@@ -36,7 +35,6 @@ class TelegramMCPBot:
         self.bot_username = bot_username
         self.agent = openai_agent
         self.application = Application.builder().token(token).build()
-        self.rate_limiter = RateLimiter()
         self._reply_chains: dict[int, deque[int]] = {}
 
     async def run(self) -> None:
@@ -173,10 +171,6 @@ class TelegramMCPBot:
         """Run agent and reply. Returns the sent Message object, or None on failure."""
         assert update.message is not None and update.message.text is not None
         assert update.effective_chat is not None
-        user = update.message.from_user
-        if user is not None and not self.rate_limiter.is_allowed(user.id):
-            await update.message.reply_text("Rate limit exceeded. Please try again later.")
-            return None
         await update.message.chat.send_action(ChatAction.TYPING)
         typing_task = asyncio.create_task(self._send_typing_loop(update))
         try:

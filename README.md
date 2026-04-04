@@ -11,7 +11,7 @@ See also: [agentic-slackbot](https://github.com/John-Lin/agentic-slackbot) — a
 - Connects to any MCP server via `servers_config.json`
 - Supports OpenAI, Azure OpenAI endpoints
 - Per-conversation history with automatic truncation
-- Per-user rate limiting
+- Group reply chain — after `@mention`, anyone can continue by replying
 
 ## Install Dependencies
 
