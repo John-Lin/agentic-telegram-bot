@@ -22,41 +22,8 @@ def _mock_model(monkeypatch):
 
 
 class TestGetModel:
-    def test_uses_azure_when_both_azure_env_vars_present(self, monkeypatch):
-        monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
-        monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://my.azure.com")
-        monkeypatch.delenv("OPENAI_API_VERSION", raising=False)
-
-        with patch("bot.agents.AsyncAzureOpenAI") as mock_azure, patch("bot.agents.AsyncOpenAI") as mock_openai:
-            mock_azure.return_value = MagicMock()
-            _get_model()
-            mock_azure.assert_called_once()
-            mock_openai.assert_not_called()
-
-    def test_uses_standard_openai_when_only_api_key_set(self, monkeypatch):
-        monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
-        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
-
-        with patch("bot.agents.AsyncAzureOpenAI") as mock_azure, patch("bot.agents.AsyncOpenAI") as mock_openai:
-            mock_openai.return_value = MagicMock()
-            _get_model()
-            mock_openai.assert_called_once()
-            mock_azure.assert_not_called()
-
-    def test_uses_standard_openai_when_no_azure_vars(self, monkeypatch):
-        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
-
-        with patch("bot.agents.AsyncAzureOpenAI") as mock_azure, patch("bot.agents.AsyncOpenAI") as mock_openai:
-            mock_openai.return_value = MagicMock()
-            _get_model()
-            mock_openai.assert_called_once()
-            mock_azure.assert_not_called()
-
     def test_returns_responses_model_by_default(self, monkeypatch):
         monkeypatch.delenv("OPENAI_API_TYPE", raising=False)
-        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
 
         with patch("bot.agents.AsyncOpenAI", return_value=MagicMock()):
             model = _get_model()
@@ -64,8 +31,6 @@ class TestGetModel:
 
     def test_returns_responses_model_when_api_type_is_responses(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_TYPE", "responses")
-        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
 
         with patch("bot.agents.AsyncOpenAI", return_value=MagicMock()):
             model = _get_model()
@@ -73,8 +38,6 @@ class TestGetModel:
 
     def test_returns_chat_completions_model_when_api_type_is_chat_completions(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_TYPE", "chat_completions")
-        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
 
         with patch("bot.agents.AsyncOpenAI", return_value=MagicMock()):
             model = _get_model()
