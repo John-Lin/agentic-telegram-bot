@@ -43,13 +43,12 @@ export OPENAI_API_KEY=""
 export OPENAI_MODEL="gpt-5.4"
 ```
 
-If you are using Azure OpenAI, set these instead:
+If you are using Azure OpenAI (v1 API), set these instead:
 
 ```
-export AZURE_OPENAI_API_KEY=""
-export AZURE_OPENAI_ENDPOINT="https://<myopenai>.azure.com/"
+export OPENAI_API_KEY=""
+export OPENAI_BASE_URL="https://<resource-name>.openai.azure.com/openai/v1/"
 export OPENAI_MODEL="gpt-5.4"
-export OPENAI_API_VERSION="2025-03-01-preview"
 ```
 
 ## MCP Server Configuration (Optional)

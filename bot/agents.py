@@ -12,7 +12,7 @@ from agents.mcp import MCPServerStdio
 from agents.mcp import MCPServerStreamableHttp
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from agents.models.openai_responses import OpenAIResponsesModel
-from openai import AsyncAzureOpenAI
+from agents.tracing import set_tracing_disabled
 from openai import AsyncOpenAI
 
 DEFAULT_INSTRUCTIONS = (
@@ -25,26 +25,22 @@ DEFAULT_INSTRUCTIONS = (
 MAX_TURNS = 10
 MCP_SESSION_TIMEOUT_SECONDS = 30.0
 
+set_tracing_disabled(True)
+
 
 def _get_model() -> OpenAIResponsesModel | OpenAIChatCompletionsModel:
     """Create an OpenAI model from environment variables.
 
+    Uses the standard OpenAI client, which works with both OpenAI and
+    Azure OpenAI v1 API (via OPENAI_BASE_URL + OPENAI_API_KEY).
+
     OPENAI_API_TYPE controls which API the model uses:
       - "responses" (default): OpenAI Responses API — recommended by the SDK
-      - "chat_completions": Chat Completions API — use for Azure OpenAI or compatible providers
+      - "chat_completions": Chat Completions API
     """
     model_name = os.getenv("OPENAI_MODEL", "gpt-5.4")
     api_type = os.getenv("OPENAI_API_TYPE", "responses")
-
-    client: AsyncOpenAI
-    if os.getenv("AZURE_OPENAI_API_KEY") and os.getenv("AZURE_OPENAI_ENDPOINT"):
-        client = AsyncAzureOpenAI(
-            api_key=os.environ["AZURE_OPENAI_API_KEY"],
-            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-            api_version=os.getenv("OPENAI_API_VERSION", "2025-04-01-preview"),
-        )
-    else:
-        client = AsyncOpenAI()
+    client = AsyncOpenAI()
 
     if api_type == "chat_completions":
         return OpenAIChatCompletionsModel(model=model_name, openai_client=client)
