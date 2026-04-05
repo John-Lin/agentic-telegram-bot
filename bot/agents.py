@@ -12,6 +12,7 @@ from agents.mcp import MCPServerStdio
 from agents.mcp import MCPServerStreamableHttp
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from agents.models.openai_responses import OpenAIResponsesModel
+from agents.tracing import set_tracing_disabled
 from openai import AsyncOpenAI
 
 DEFAULT_INSTRUCTIONS = (
@@ -23,6 +24,8 @@ DEFAULT_INSTRUCTIONS = (
 
 MAX_TURNS = 10
 MCP_SESSION_TIMEOUT_SECONDS = 30.0
+
+set_tracing_disabled(True)
 
 
 def _get_model() -> OpenAIResponsesModel | OpenAIChatCompletionsModel:
