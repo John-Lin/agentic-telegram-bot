@@ -5,6 +5,7 @@ from unittest.mock import create_autospec
 from unittest.mock import patch
 
 import pytest
+from agents import WebSearchTool
 from agents.models.interface import Model
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from agents.models.openai_responses import OpenAIResponsesModel
@@ -217,3 +218,34 @@ class TestHistoryTruncation:
         msgs = agent.get_messages(chat_id=100)
         user_msgs = [m for m in msgs if m["role"] == "user"]
         assert len(user_msgs) == 3
+
+
+class TestWebSearchTool:
+    def test_web_search_tool_included_with_standard_openai_responses(self, monkeypatch):
+        """WebSearchTool should be added when using Responses API with standard OpenAI."""
+        mock_model = create_autospec(OpenAIResponsesModel)
+        monkeypatch.setattr("bot.agents._get_model", lambda: mock_model)
+        monkeypatch.setattr("bot.agents._is_azure", lambda: False)
+
+        agent = OpenAIAgent(name="test")
+        web_tools = [t for t in agent.agent.tools if isinstance(t, WebSearchTool)]
+        assert len(web_tools) == 1
+
+    def test_web_search_tool_excluded_with_chat_completions(self, monkeypatch):
+        """WebSearchTool should NOT be added when using Chat Completions API."""
+        mock_model = create_autospec(OpenAIChatCompletionsModel)
+        monkeypatch.setattr("bot.agents._get_model", lambda: mock_model)
+
+        agent = OpenAIAgent(name="test")
+        web_tools = [t for t in agent.agent.tools if isinstance(t, WebSearchTool)]
+        assert len(web_tools) == 0
+
+    def test_web_search_tool_excluded_with_azure(self, monkeypatch):
+        """WebSearchTool should NOT be added when using Azure, even with Responses API."""
+        mock_model = create_autospec(OpenAIResponsesModel)
+        monkeypatch.setattr("bot.agents._get_model", lambda: mock_model)
+        monkeypatch.setattr("bot.agents._is_azure", lambda: True)
+
+        agent = OpenAIAgent(name="test")
+        web_tools = [t for t in agent.agent.tools if isinstance(t, WebSearchTool)]
+        assert len(web_tools) == 0

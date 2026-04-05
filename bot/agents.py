@@ -8,6 +8,7 @@ from typing import Any
 from agents import Agent
 from agents import Runner
 from agents import TResponseInputItem
+from agents import WebSearchTool
 from agents.mcp import MCPServerStdio
 from agents.mcp import MCPServerStreamableHttp
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
@@ -26,6 +27,11 @@ MAX_TURNS = 10
 MCP_SESSION_TIMEOUT_SECONDS = 30.0
 
 
+def _is_azure() -> bool:
+    """Check whether Azure OpenAI credentials are configured."""
+    return bool(os.getenv("AZURE_OPENAI_API_KEY") and os.getenv("AZURE_OPENAI_ENDPOINT"))
+
+
 def _get_model() -> OpenAIResponsesModel | OpenAIChatCompletionsModel:
     """Create an OpenAI model from environment variables.
 
@@ -37,7 +43,7 @@ def _get_model() -> OpenAIResponsesModel | OpenAIChatCompletionsModel:
     api_type = os.getenv("OPENAI_API_TYPE", "responses")
 
     client: AsyncOpenAI
-    if os.getenv("AZURE_OPENAI_API_KEY") and os.getenv("AZURE_OPENAI_ENDPOINT"):
+    if _is_azure():
         client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
             azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
@@ -60,11 +66,16 @@ class OpenAIAgent:
         mcp_servers: list | None = None,
         instructions: str = DEFAULT_INSTRUCTIONS,
     ) -> None:
+        model = _get_model()
+        tools: list = []
+        if isinstance(model, OpenAIResponsesModel) and not _is_azure():
+            tools.append(WebSearchTool())
         self.agent = Agent(
             name=name,
             instructions=instructions,
-            model=_get_model(),
+            model=model,
             mcp_servers=(mcp_servers if mcp_servers is not None else []),
+            tools=tools,
         )
         self.name = name
         self._conversations: dict[int, list[TResponseInputItem]] = {}
