@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import pytest
 from agents import ShellTool
+from agents.mcp import MCPServerStdio
+from agents.mcp import MCPServerStreamableHttp
 from agents.models.interface import Model
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from agents.models.openai_responses import OpenAIResponsesModel
@@ -25,41 +27,8 @@ def _mock_model(monkeypatch):
 
 
 class TestGetModel:
-    def test_uses_azure_when_both_azure_env_vars_present(self, monkeypatch):
-        monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
-        monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://my.azure.com")
-        monkeypatch.delenv("OPENAI_API_VERSION", raising=False)
-
-        with patch("bot.agents.AsyncAzureOpenAI") as mock_azure, patch("bot.agents.AsyncOpenAI") as mock_openai:
-            mock_azure.return_value = MagicMock()
-            _get_model()
-            mock_azure.assert_called_once()
-            mock_openai.assert_not_called()
-
-    def test_uses_standard_openai_when_only_api_key_set(self, monkeypatch):
-        monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
-        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
-
-        with patch("bot.agents.AsyncAzureOpenAI") as mock_azure, patch("bot.agents.AsyncOpenAI") as mock_openai:
-            mock_openai.return_value = MagicMock()
-            _get_model()
-            mock_openai.assert_called_once()
-            mock_azure.assert_not_called()
-
-    def test_uses_standard_openai_when_no_azure_vars(self, monkeypatch):
-        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
-
-        with patch("bot.agents.AsyncAzureOpenAI") as mock_azure, patch("bot.agents.AsyncOpenAI") as mock_openai:
-            mock_openai.return_value = MagicMock()
-            _get_model()
-            mock_openai.assert_called_once()
-            mock_azure.assert_not_called()
-
     def test_returns_responses_model_by_default(self, monkeypatch):
         monkeypatch.delenv("OPENAI_API_TYPE", raising=False)
-        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
 
         with patch("bot.agents.AsyncOpenAI", return_value=MagicMock()):
             model = _get_model()
@@ -67,8 +36,6 @@ class TestGetModel:
 
     def test_returns_responses_model_when_api_type_is_responses(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_TYPE", "responses")
-        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
 
         with patch("bot.agents.AsyncOpenAI", return_value=MagicMock()):
             model = _get_model()
@@ -76,8 +43,6 @@ class TestGetModel:
 
     def test_returns_chat_completions_model_when_api_type_is_chat_completions(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_TYPE", "chat_completions")
-        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
 
         with patch("bot.agents.AsyncOpenAI", return_value=MagicMock()):
             model = _get_model()
@@ -154,9 +119,60 @@ class TestInstructions:
         assert agent.agent.instructions == DEFAULT_INSTRUCTIONS
 
 
+class TestFromDictMcpServers:
+    def test_url_creates_streamable_http_server(self):
+        config = {
+            "mcpServers": {
+                "my-server": {
+                    "url": "http://localhost:8000/mcp",
+                }
+            },
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        assert len(agent.agent.mcp_servers) == 1
+        assert isinstance(agent.agent.mcp_servers[0], MCPServerStreamableHttp)
+
+    def test_url_passes_headers(self):
+        config = {
+            "mcpServers": {
+                "my-server": {
+                    "url": "http://localhost:8000/mcp",
+                    "headers": {"Authorization": "Bearer token"},
+                }
+            },
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        server = agent.agent.mcp_servers[0]
+        assert isinstance(server, MCPServerStreamableHttp)
+
+    def test_command_creates_stdio_server(self):
+        config = {
+            "mcpServers": {
+                "my-server": {
+                    "command": "npx",
+                    "args": ["-y", "some-mcp-server"],
+                }
+            },
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        assert len(agent.agent.mcp_servers) == 1
+        assert isinstance(agent.agent.mcp_servers[0], MCPServerStdio)
+
+    def test_mixed_servers(self):
+        config = {
+            "mcpServers": {
+                "remote": {"url": "http://localhost:8000/mcp"},
+                "local": {"command": "npx", "args": ["-y", "server"]},
+            },
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        types = {type(s) for s in agent.agent.mcp_servers}
+        assert types == {MCPServerStreamableHttp, MCPServerStdio}
+
+
 class TestHistoryTruncation:
     def test_default_max_turns(self):
-        assert MAX_TURNS == 25
+        assert MAX_TURNS == 10
 
     def test_truncate_keeps_recent_turns(self):
         agent = OpenAIAgent(name="test")
@@ -174,11 +190,11 @@ class TestHistoryTruncation:
         agent.truncate_history(chat_id=100)
         msgs = agent.get_messages(chat_id=100)
 
-        # Should keep last 25 turns = 50 messages (user+assistant each)
+        # Should keep last MAX_TURNS turns (user+assistant each)
         user_msgs = [m for m in msgs if m["role"] == "user"]
         assert len(user_msgs) == MAX_TURNS
-        # Oldest kept should be turn 5 (0-4 dropped)
-        assert user_msgs[0]["content"] == "user-5"
+        # Oldest kept should be turn (30 - MAX_TURNS)
+        assert user_msgs[0]["content"] == f"user-{30 - MAX_TURNS}"
         # Most recent should be turn 29
         assert user_msgs[-1]["content"] == "user-29"
 
@@ -299,9 +315,7 @@ class TestFromDictShellSkills:
     def test_skill_description_read_from_skill_md(self, tmp_path):
         skill_dir = tmp_path / "obs"
         skill_dir.mkdir()
-        (skill_dir / "SKILL.md").write_text(
-            "---\nname: obs\ndescription: Interact with Obsidian\n---\n# Content\n"
-        )
+        (skill_dir / "SKILL.md").write_text("---\nname: obs\ndescription: Interact with Obsidian\n---\n# Content\n")
         config = {
             "mcpServers": {},
             "shellSkills": [{"name": "obs", "path": str(skill_dir)}],
