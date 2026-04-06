@@ -5,6 +5,8 @@ from unittest.mock import create_autospec
 from unittest.mock import patch
 
 import pytest
+from agents.mcp import MCPServerStdio
+from agents.mcp import MCPServerStreamableHttp
 from agents.models.interface import Model
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from agents.models.openai_responses import OpenAIResponsesModel
@@ -112,6 +114,57 @@ class TestInstructions:
         }
         agent = OpenAIAgent.from_dict("test", config)
         assert agent.agent.instructions == DEFAULT_INSTRUCTIONS
+
+
+class TestFromDictMcpServers:
+    def test_url_creates_streamable_http_server(self):
+        config = {
+            "mcpServers": {
+                "my-server": {
+                    "url": "http://localhost:8000/mcp",
+                }
+            },
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        assert len(agent.agent.mcp_servers) == 1
+        assert isinstance(agent.agent.mcp_servers[0], MCPServerStreamableHttp)
+
+    def test_url_passes_headers(self):
+        config = {
+            "mcpServers": {
+                "my-server": {
+                    "url": "http://localhost:8000/mcp",
+                    "headers": {"Authorization": "Bearer token"},
+                }
+            },
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        server = agent.agent.mcp_servers[0]
+        assert isinstance(server, MCPServerStreamableHttp)
+
+    def test_command_creates_stdio_server(self):
+        config = {
+            "mcpServers": {
+                "my-server": {
+                    "command": "npx",
+                    "args": ["-y", "some-mcp-server"],
+                }
+            },
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        assert len(agent.agent.mcp_servers) == 1
+        assert isinstance(agent.agent.mcp_servers[0], MCPServerStdio)
+
+    def test_mixed_servers(self):
+        config = {
+            "mcpServers": {
+                "remote": {"url": "http://localhost:8000/mcp"},
+                "local": {"command": "npx", "args": ["-y", "server"]},
+            },
+        }
+        agent = OpenAIAgent.from_dict("test", config)
+        types = {type(s) for s in agent.agent.mcp_servers}
+        assert types == {MCPServerStreamableHttp, MCPServerStdio}
 
 
 class TestHistoryTruncation:
