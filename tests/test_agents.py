@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import create_autospec
 from unittest.mock import patch
@@ -292,3 +293,46 @@ class TestLoadShellSkills:
         assert len(agent.agent.mcp_servers) == 1
         shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
         assert len(shell_tools) == 1
+
+    def test_unreadable_utf8_skill_file_is_skipped(self, tmp_path, monkeypatch):
+        bad = tmp_path / "bad-skill"
+        bad.mkdir()
+        (bad / "SKILL.md").write_bytes(b"\xff\xfe\x00\x00")
+
+        good = tmp_path / "good-skill"
+        good.mkdir()
+        (good / "SKILL.md").write_text("---\nname: good-skill\ndescription: good\n---\n")
+
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path)
+
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tool = next(t for t in agent.agent.tools if isinstance(t, ShellTool))
+        skills = shell_tool.environment["skills"]
+        assert len(skills) == 1
+        assert skills[0]["name"] == "good-skill"
+
+    def test_oserror_reading_skill_file_is_skipped(self, tmp_path, monkeypatch):
+        bad = tmp_path / "bad-skill"
+        bad.mkdir()
+        bad_file = bad / "SKILL.md"
+        bad_file.write_text("---\nname: bad\ndescription: bad\n---\n")
+
+        good = tmp_path / "good-skill"
+        good.mkdir()
+        (good / "SKILL.md").write_text("---\nname: good-skill\ndescription: good\n---\n")
+
+        original_read_text = Path.read_text
+
+        def _read_text(self: Path, *args, **kwargs):
+            if self == bad_file:
+                raise OSError("permission denied")
+            return original_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path)
+        monkeypatch.setattr(Path, "read_text", _read_text)
+
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tool = next(t for t in agent.agent.tools if isinstance(t, ShellTool))
+        skills = shell_tool.environment["skills"]
+        assert len(skills) == 1
+        assert skills[0]["name"] == "good-skill"

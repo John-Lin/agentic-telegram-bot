@@ -90,10 +90,15 @@ def _load_shell_skills() -> list[ShellToolLocalSkill]:
         skill_md = skill_dir / "SKILL.md"
         if not skill_dir.is_dir() or not skill_md.is_file():
             continue
+        try:
+            content = skill_md.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            logging.warning("Skipping unreadable skill file: %s", skill_md, exc_info=True)
+            continue
         skills.append(
             ShellToolLocalSkill(
                 name=skill_dir.name,
-                description=_parse_skill_description(skill_md.read_text(encoding="utf-8")),
+                description=_parse_skill_description(content),
                 path=str(skill_dir),
             )
         )
