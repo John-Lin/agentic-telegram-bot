@@ -238,6 +238,7 @@ class TestHistoryTruncation:
         assert len(user_msgs) == 3
 
 
+@pytest.mark.usefixtures("_stub_instructions")
 class TestLoadShellSkills:
     def test_no_shell_tool_when_skills_dir_missing(self, tmp_path, monkeypatch):
         monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path / "nonexistent")
