@@ -9,7 +9,6 @@ from typing import Any
 from agents import Agent
 from agents import Runner
 from agents import ShellTool
-from agents import ShellToolLocalSkill
 from agents import TResponseInputItem
 from agents.mcp import MCPServerStdio
 from agents.mcp import MCPServerStreamableHttp
@@ -23,6 +22,7 @@ INSTRUCTIONS_FILE = Path("instructions.md")
 MAX_TURNS = 10
 MCP_SESSION_TIMEOUT_SECONDS = 30.0
 SHELL_TIMEOUT = 30.0
+SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 
 set_tracing_disabled(True)
 
@@ -61,61 +61,68 @@ def _get_model() -> OpenAIResponsesModel | OpenAIChatCompletionsModel:
     return OpenAIResponsesModel(model=model_name, openai_client=client)
 
 
-def _read_skill_description(skill_dir: Path) -> str:
-    """Read the description field from a skill's SKILL.md frontmatter.
-
-    Returns an empty string if the file is missing or has no description.
-    """
-    skill_md = skill_dir / "SKILL.md"
-    try:
-        content = skill_md.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        logging.warning("SKILL.md not found in %s", skill_dir)
-        return ""
-
-    # Parse YAML frontmatter between --- delimiters
+def _parse_skill_description(content: str) -> str:
+    """Return the description field from a SKILL.md YAML frontmatter, or ""."""
     if not content.startswith("---"):
         return ""
     end = content.find("\n---", 3)
     if end == -1:
         return ""
-    frontmatter = content[3:end]
-    for line in frontmatter.splitlines():
+    for line in content[3:end].splitlines():
         if line.startswith("description:"):
             return line[len("description:") :].strip()
     return ""
 
 
-async def _shell_executor(request: Any) -> str:
-    """Execute a shell command from a LocalShellCommandRequest.
+def _load_shell_skills() -> list[dict[str, str]]:
+    """Discover local shell skills under SKILLS_DIR.
 
-    Uses timeout_ms from the request if provided, otherwise falls back
-    to SHELL_TIMEOUT seconds.
+    Each immediate subdirectory of SKILLS_DIR containing a SKILL.md is mounted
+    as a ShellToolLocalSkill. The skill name is the directory name; the
+    description is read from the SKILL.md YAML frontmatter.
+    """
+    if not SKILLS_DIR.is_dir():
+        return []
+    skills: list[dict[str, str]] = []
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_dir.is_dir() or not skill_md.is_file():
+            continue
+        skills.append(
+            {
+                "name": skill_dir.name,
+                "description": _parse_skill_description(skill_md.read_text(encoding="utf-8")),
+                "path": str(skill_dir),
+            }
+        )
+    return skills
+
+
+async def _shell_executor(request: Any) -> str:
+    """Run each shell command from the request and return combined output.
+
+    Honours action.timeout_ms when set, otherwise falls back to SHELL_TIMEOUT.
+    stderr is merged into stdout for simplicity.
     """
     action = request.data.action
-    command: list[str] = action.command
-    env: dict[str, str] = action.env or {}
-    cwd: str | None = action.working_directory
-    timeout_ms: int | None = action.timeout_ms
+    timeout = (action.timeout_ms / 1000.0) if action.timeout_ms else SHELL_TIMEOUT
 
-    timeout = (timeout_ms / 1000.0) if timeout_ms is not None else SHELL_TIMEOUT
-
-    merged_env = {**os.environ, **env}
-
-    proc = await asyncio.create_subprocess_exec(
-        *command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        env=merged_env,
-        cwd=cwd,
-    )
-    try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        return stdout.decode("utf-8", errors="replace")
-    except TimeoutError:
-        proc.kill()
-        await proc.communicate()
-        return f"Command timed out after {timeout}s"
+    outputs: list[str] = []
+    for command in action.commands:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            outputs.append(stdout.decode("utf-8", errors="replace"))
+        except TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            outputs.append(f"Command timed out after {timeout}s: {command}")
+            break
+    return "\n".join(outputs)
 
 
 class OpenAIAgent:
@@ -190,19 +197,8 @@ class OpenAIAgent:
                     )
                 )
         tools: list[Any] = []
-        skill_configs = config.get("shellSkills", [])
-        if skill_configs:
-            skills: list[ShellToolLocalSkill] = []
-            for skill_cfg in skill_configs:
-                skill_path = Path(os.path.expanduser(skill_cfg["path"]))
-                description = _read_skill_description(skill_path)
-                skills.append(
-                    ShellToolLocalSkill(
-                        name=skill_cfg["name"],
-                        description=description,
-                        path=str(skill_path),
-                    )
-                )
+        skills = _load_shell_skills()
+        if skills:
             tools.append(ShellTool(executor=_shell_executor, environment={"type": "local", "skills": skills}))
 
         instructions = _load_instructions()
