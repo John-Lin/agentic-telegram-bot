@@ -10,5 +10,6 @@ wheels/
 .venv
 .envrc
 servers_config.json
+instructions.md
 access.json
 .access.pending.json
