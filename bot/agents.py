@@ -215,10 +215,11 @@ class OpenAIAgent:
                     )
                 )
         tools: list[Any] = []
-        skills = _load_shell_skills()
-        if skills:
-            environment = ShellToolLocalEnvironment(type="local", skills=skills)
-            tools.append(ShellTool(executor=_shell_executor, environment=environment))
+        if os.getenv("SHELL_SKILLS_ENABLED"):
+            skills = _load_shell_skills()
+            if skills:
+                environment = ShellToolLocalEnvironment(type="local", skills=skills)
+                tools.append(ShellTool(executor=_shell_executor, environment=environment))
 
         instructions = _load_instructions()
         return cls(name, instructions=instructions, mcp_servers=mcp_servers, tools=tools)

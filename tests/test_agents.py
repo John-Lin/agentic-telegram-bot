@@ -242,13 +242,38 @@ class TestHistoryTruncation:
 
 @pytest.mark.usefixtures("_stub_instructions")
 class TestLoadShellSkills:
+    def _make_skill_dir(self, tmp_path):
+        """Create a valid skill directory and return its parent."""
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: A test skill\n---\n")
+        return tmp_path
+
+    def test_disabled_by_default(self, tmp_path, monkeypatch):
+        """Skills exist but SHELL_SKILLS_ENABLED is not set — no ShellTool."""
+        monkeypatch.delenv("SHELL_SKILLS_ENABLED", raising=False)
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", self._make_skill_dir(tmp_path))
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
+        assert len(shell_tools) == 0
+
+    def test_enabled_with_env_var(self, tmp_path, monkeypatch):
+        """SHELL_SKILLS_ENABLED=1 and skills exist — ShellTool is added."""
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", self._make_skill_dir(tmp_path))
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
+        assert len(shell_tools) == 1
+
     def test_no_shell_tool_when_skills_dir_missing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
         monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path / "nonexistent")
         agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
         shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
         assert len(shell_tools) == 0
 
     def test_shell_tool_added_when_skill_found(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
         skill_dir = tmp_path / "my-skill"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: A test skill\n---\n")
@@ -262,6 +287,7 @@ class TestLoadShellSkills:
         assert skill["path"] == str(skill_dir)
 
     def test_multiple_skills_all_mounted(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
         for name in ["skill-a", "skill-b"]:
             d = tmp_path / name
             d.mkdir()
@@ -273,6 +299,7 @@ class TestLoadShellSkills:
         assert len(shell_tool.environment["skills"]) == 2
 
     def test_directory_without_skill_md_is_skipped(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
         (tmp_path / "not-a-skill").mkdir()
         good = tmp_path / "real-skill"
         good.mkdir()
@@ -286,6 +313,7 @@ class TestLoadShellSkills:
         assert skills[0]["name"] == "real-skill"
 
     def test_mcp_servers_and_shell_skills_coexist(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
         skill_dir = tmp_path / "s"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n")
@@ -298,6 +326,7 @@ class TestLoadShellSkills:
         assert len(shell_tools) == 1
 
     def test_unreadable_utf8_skill_file_is_skipped(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
         bad = tmp_path / "bad-skill"
         bad.mkdir()
         (bad / "SKILL.md").write_bytes(b"\xff\xfe\x00\x00")
@@ -315,6 +344,7 @@ class TestLoadShellSkills:
         assert skills[0]["name"] == "good-skill"
 
     def test_oserror_reading_skill_file_is_skipped(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
         bad = tmp_path / "bad-skill"
         bad.mkdir()
         bad_file = bad / "SKILL.md"
