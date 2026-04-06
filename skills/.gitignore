@@ -1,0 +1,4 @@
+# Users drop their own shell skills into this directory; the bot auto-loads
+# any subdirectory containing a SKILL.md. Skill content is not tracked.
+*
+!.gitignore
