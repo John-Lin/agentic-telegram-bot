@@ -8,6 +8,7 @@ from typing import Any
 
 from agents import Agent
 from agents import Runner
+from agents import ShellCommandRequest
 from agents import ShellTool
 from agents import ShellToolLocalEnvironment
 from agents import ShellToolLocalSkill
@@ -72,7 +73,10 @@ def _parse_skill_description(content: str) -> str:
         return ""
     for line in content[3:end].splitlines():
         if line.startswith("description:"):
-            return line[len("description:") :].strip()
+            value = line[len("description:") :].strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                value = value[1:-1]
+            return value
     return ""
 
 
@@ -105,25 +109,32 @@ def _load_shell_skills() -> list[ShellToolLocalSkill]:
     return skills
 
 
-async def _shell_executor(request: Any) -> str:
+async def _shell_executor(request: ShellCommandRequest) -> str:
     """Run each shell command from the request and return combined output.
 
     Honours action.timeout_ms when set, otherwise falls back to SHELL_TIMEOUT.
     stderr is merged into stdout for simplicity.
     """
     action = request.data.action
-    timeout = (action.timeout_ms / 1000.0) if action.timeout_ms else SHELL_TIMEOUT
+    timeout = (action.timeout_ms / 1000.0) if action.timeout_ms is not None else SHELL_TIMEOUT
 
     outputs: list[str] = []
     for command in action.commands:
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except OSError as e:
+            outputs.append(f"Failed to run command: {command}: {e}")
+            break
         try:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            outputs.append(stdout.decode("utf-8", errors="replace"))
+            output = stdout.decode("utf-8", errors="replace")
+            if proc.returncode:
+                output += f"\n[exit code: {proc.returncode}]"
+            outputs.append(output)
         except TimeoutError:
             proc.kill()
             await proc.communicate()

@@ -16,6 +16,8 @@ from agents.models.openai_responses import OpenAIResponsesModel
 from bot.agents import MAX_TURNS
 from bot.agents import OpenAIAgent
 from bot.agents import _get_model
+from bot.agents import _parse_skill_description
+from bot.agents import _shell_executor
 
 
 @pytest.fixture
@@ -337,3 +339,116 @@ class TestLoadShellSkills:
         skills = shell_tool.environment["skills"]
         assert len(skills) == 1
         assert skills[0]["name"] == "good-skill"
+
+
+class TestParseSkillDescription:
+    def test_unquoted_description(self):
+        content = "---\nname: my-skill\ndescription: A test skill\n---\nBody text."
+        assert _parse_skill_description(content) == "A test skill"
+
+    def test_double_quoted_description(self):
+        content = '---\nname: my-skill\ndescription: "A quoted skill"\n---\n'
+        assert _parse_skill_description(content) == "A quoted skill"
+
+    def test_single_quoted_description(self):
+        content = "---\nname: my-skill\ndescription: 'Single quoted'\n---\n"
+        assert _parse_skill_description(content) == "Single quoted"
+
+    def test_no_frontmatter(self):
+        content = "Just a plain markdown file."
+        assert _parse_skill_description(content) == ""
+
+    def test_no_description_field(self):
+        content = "---\nname: my-skill\n---\nBody."
+        assert _parse_skill_description(content) == ""
+
+    def test_unclosed_frontmatter(self):
+        content = "---\nname: my-skill\ndescription: never closed"
+        assert _parse_skill_description(content) == ""
+
+    def test_empty_description(self):
+        content = "---\nname: my-skill\ndescription:\n---\n"
+        assert _parse_skill_description(content) == ""
+
+    def test_description_with_colon_in_value(self):
+        content = "---\ndescription: Run this: do stuff\n---\n"
+        assert _parse_skill_description(content) == "Run this: do stuff"
+
+
+def _make_shell_request(commands: list[str], timeout_ms: int | None = None):
+    """Build a minimal object matching the ShellCommandRequest interface."""
+    from types import SimpleNamespace
+
+    action = SimpleNamespace(commands=commands, timeout_ms=timeout_ms)
+    data = SimpleNamespace(action=action)
+    return SimpleNamespace(data=data)
+
+
+class TestShellExecutor:
+    @pytest.mark.anyio
+    async def test_single_command_returns_stdout(self):
+        request = _make_shell_request(["echo hello"])
+        result = await _shell_executor(request)
+        assert result.strip() == "hello"
+
+    @pytest.mark.anyio
+    async def test_multiple_commands_combined(self):
+        request = _make_shell_request(["echo first", "echo second"])
+        result = await _shell_executor(request)
+        assert "first" in result
+        assert "second" in result
+        assert result.index("first") < result.index("second")
+
+    @pytest.mark.anyio
+    async def test_stderr_merged_into_stdout(self):
+        request = _make_shell_request(["echo err >&2"])
+        result = await _shell_executor(request)
+        assert result.strip() == "err"
+
+    @pytest.mark.anyio
+    async def test_command_timeout_kills_process(self):
+        request = _make_shell_request(["sleep 30"], timeout_ms=100)
+        result = await _shell_executor(request)
+        assert "timed out" in result.lower()
+
+    @pytest.mark.anyio
+    async def test_nonzero_exit_code_appends_exit_code(self):
+        request = _make_shell_request(["echo failing && exit 1"])
+        result = await _shell_executor(request)
+        assert "failing" in result
+        assert "[exit code: 1]" in result
+
+    @pytest.mark.anyio
+    async def test_zero_exit_code_no_suffix(self):
+        request = _make_shell_request(["echo ok"])
+        result = await _shell_executor(request)
+        assert "exit code" not in result
+
+    @pytest.mark.anyio
+    async def test_timeout_ms_none_uses_default(self):
+        """When timeout_ms is None, SHELL_TIMEOUT is used (command completes fine)."""
+        request = _make_shell_request(["echo ok"], timeout_ms=None)
+        result = await _shell_executor(request)
+        assert result.strip() == "ok"
+
+    @pytest.mark.anyio
+    async def test_timeout_stops_remaining_commands(self):
+        """After a timeout, subsequent commands are not executed."""
+        request = _make_shell_request(["sleep 30", "echo should-not-run"], timeout_ms=100)
+        result = await _shell_executor(request)
+        assert "timed out" in result.lower()
+        assert "should-not-run" not in result
+
+    @pytest.mark.anyio
+    async def test_subprocess_oserror_returns_error_message(self, monkeypatch):
+        """When create_subprocess_shell raises OSError, return error text instead of crashing."""
+        import asyncio as _asyncio
+
+        async def _failing_shell(*args, **kwargs):
+            raise OSError("fork failed")
+
+        monkeypatch.setattr(_asyncio, "create_subprocess_shell", _failing_shell)
+
+        request = _make_shell_request(["echo hello"])
+        result = await _shell_executor(request)
+        assert "fork failed" in result
