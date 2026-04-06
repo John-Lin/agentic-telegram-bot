@@ -43,6 +43,17 @@ export OPENAI_API_KEY=""
 export OPENAI_MODEL="gpt-5.4"
 ```
 
+## Agent Instructions
+
+The bot loads its system prompt from `instructions.md` in the project root.
+If the file is missing, the bot fails fast at startup.
+
+You can copy `instructions.md.example` as a starting point:
+
+```bash
+cp instructions.md.example instructions.md
+```
+
 If you are using Azure OpenAI (v1 API), set these instead:
 
 ```
@@ -57,7 +68,6 @@ Create a `servers_config.json` file to add your MCP servers. If this file is not
 
 ```json
 {
-  "instructions": "Your custom system prompt here.",
   "mcpServers": {
     "my-server": {
       "command": "uvx",
@@ -67,13 +77,13 @@ Create a `servers_config.json` file to add your MCP servers. If this file is not
 }
 ```
 
-For HTTP-based MCP servers (Streamable HTTP), use `httpUrl`:
+For HTTP-based MCP servers (Streamable HTTP), use `url`:
 
 ```json
 {
   "mcpServers": {
     "my-server": {
-      "httpUrl": "https://mcp.example.com/mcp",
+      "url": "https://mcp.example.com/mcp",
       "headers": {
         "Accept": "application/json, text/event-stream"
       }
@@ -86,7 +96,6 @@ For local MCP servers, use `uv --directory`:
 
 ```json
 {
-  "instructions": "Your custom system prompt here.",
   "mcpServers": {
     "my-server": {
       "command": "uv",
@@ -184,7 +193,22 @@ docker run -d \
   -e TELEGRAM_BOT_TOKEN="" \
   -e OPENAI_API_KEY="" \
   -e OPENAI_MODEL="gpt-5.4" \
+  -v /path/to/instructions.md:/app/instructions.md \
   -v /path/to/servers_config.json:/app/servers_config.json \
+  -v /path/to/access.json:/app/access.json \
+  agentic-telegram-bot
+```
+
+If you do not use MCP servers, you still need to mount `instructions.md`:
+
+```bash
+docker run -d \
+  --name telegent \
+  -e BOT_USERNAME="@your_bot_username" \
+  -e TELEGRAM_BOT_TOKEN="" \
+  -e OPENAI_API_KEY="" \
+  -e OPENAI_MODEL="gpt-5.4" \
+  -v /path/to/instructions.md:/app/instructions.md \
   -v /path/to/access.json:/app/access.json \
   agentic-telegram-bot
 ```

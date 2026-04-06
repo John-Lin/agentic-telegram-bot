@@ -27,15 +27,15 @@ set_tracing_disabled(True)
 def _load_instructions() -> str:
     """Load agent instructions from ``instructions.md`` in the working directory.
 
-    Fails fast with a clear error if the file is missing, so the bot never
-    silently starts up with an empty or stale prompt.
+    Fails fast with a clear error if the file is missing, so misconfiguration
+    is caught immediately at startup.
     """
     try:
         return INSTRUCTIONS_FILE.read_text(encoding="utf-8")
     except FileNotFoundError as e:
         raise FileNotFoundError(
             f"Instructions file not found: {INSTRUCTIONS_FILE.resolve()}. "
-            "Create an instructions.md file with the agent's system prompt."
+            "Create or mount instructions.md with the agent system prompt."
         ) from e
 
 
