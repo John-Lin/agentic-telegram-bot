@@ -9,6 +9,8 @@ from typing import Any
 from agents import Agent
 from agents import Runner
 from agents import ShellTool
+from agents import ShellToolLocalEnvironment
+from agents import ShellToolLocalSkill
 from agents import TResponseInputItem
 from agents.mcp import MCPServerStdio
 from agents.mcp import MCPServerStreamableHttp
@@ -64,7 +66,7 @@ def _parse_skill_description(content: str) -> str:
     return ""
 
 
-def _load_shell_skills() -> list[dict[str, str]]:
+def _load_shell_skills() -> list[ShellToolLocalSkill]:
     """Discover local shell skills under SKILLS_DIR.
 
     Each immediate subdirectory of SKILLS_DIR containing a SKILL.md is mounted
@@ -73,17 +75,17 @@ def _load_shell_skills() -> list[dict[str, str]]:
     """
     if not SKILLS_DIR.is_dir():
         return []
-    skills: list[dict[str, str]] = []
+    skills: list[ShellToolLocalSkill] = []
     for skill_dir in sorted(SKILLS_DIR.iterdir()):
         skill_md = skill_dir / "SKILL.md"
         if not skill_dir.is_dir() or not skill_md.is_file():
             continue
         skills.append(
-            {
-                "name": skill_dir.name,
-                "description": _parse_skill_description(skill_md.read_text(encoding="utf-8")),
-                "path": str(skill_dir),
-            }
+            ShellToolLocalSkill(
+                name=skill_dir.name,
+                description=_parse_skill_description(skill_md.read_text(encoding="utf-8")),
+                path=str(skill_dir),
+            )
         )
     return skills
 
@@ -190,7 +192,8 @@ class OpenAIAgent:
         tools: list[Any] = []
         skills = _load_shell_skills()
         if skills:
-            tools.append(ShellTool(executor=_shell_executor, environment={"type": "local", "skills": skills}))
+            environment = ShellToolLocalEnvironment(type="local", skills=skills)
+            tools.append(ShellTool(executor=_shell_executor, environment=environment))
 
         instructions = config.get("instructions", DEFAULT_INSTRUCTIONS)
         return cls(name, mcp_servers, tools=tools, instructions=instructions)
