@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from unittest.mock import create_autospec
 from unittest.mock import patch
@@ -16,6 +17,7 @@ from bot.agents import DEFAULT_INSTRUCTIONS
 from bot.agents import MAX_TURNS
 from bot.agents import OpenAIAgent
 from bot.agents import _get_model
+from bot.agents import _shell_executor
 
 
 @pytest.fixture(autouse=True)
@@ -294,3 +296,77 @@ class TestLoadShellSkills:
         assert len(agent.agent.mcp_servers) == 1
         shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
         assert len(shell_tools) == 1
+
+
+def _shell_request(*commands: str) -> SimpleNamespace:
+    """Build a real (not mocked) ShellCommandRequest-shaped object."""
+    return SimpleNamespace(
+        data=SimpleNamespace(
+            action=SimpleNamespace(commands=list(commands), timeout_ms=None),
+        ),
+    )
+
+
+class TestShellExecutorAllowlist:
+    @pytest.mark.anyio
+    async def test_rejects_non_obsidian_binary(self):
+        result = await _shell_executor(_shell_request("echo hello"))
+        assert "rejected" in result.lower()
+        assert "obsidian" in result.lower()
+
+    @pytest.mark.anyio
+    async def test_rejects_command_chained_with_semicolon(self, tmp_path):
+        # If the second command were ever interpreted by a shell, this file
+        # would be created. The allowlist + exec defence must prevent that.
+        sentinel = tmp_path / "should_not_exist"
+        result = await _shell_executor(
+            _shell_request(f"rm -rf /tmp/foo; touch {sentinel}"),
+        )
+        assert "rejected" in result.lower()
+        assert not sentinel.exists()
+
+    @pytest.mark.anyio
+    async def test_rejects_second_command_in_list(self, tmp_path):
+        # action.commands is a list — every entry must pass the allowlist.
+        sentinel = tmp_path / "should_not_exist"
+        result = await _shell_executor(
+            _shell_request("obsidian help", f"touch {sentinel}"),
+        )
+        assert "rejected" in result.lower()
+        assert not sentinel.exists()
+
+    @pytest.mark.anyio
+    async def test_rejects_malformed_quoting(self):
+        result = await _shell_executor(
+            _shell_request('obsidian read file="unclosed'),
+        )
+        assert "rejected" in result.lower()
+
+    @pytest.mark.anyio
+    async def test_metacharacters_are_not_shell_interpreted(self, tmp_path):
+        # Even if a command starts with `obsidian` and passes the allowlist,
+        # `&&` must not chain a second command via the shell. Use a fake
+        # `obsidian` script on PATH to confirm exec receives literal argv.
+        fake_bin = tmp_path / "bin"
+        fake_bin.mkdir()
+        sentinel = tmp_path / "should_not_exist"
+        fake_obsidian = fake_bin / "obsidian"
+        fake_obsidian.write_text("#!/bin/sh\necho fake-obsidian got: $*\n")
+        fake_obsidian.chmod(0o755)
+
+        import os
+
+        old_path = os.environ["PATH"]
+        os.environ["PATH"] = f"{fake_bin}{os.pathsep}{old_path}"
+        try:
+            result = await _shell_executor(
+                _shell_request(f"obsidian read && touch {sentinel}"),
+            )
+        finally:
+            os.environ["PATH"] = old_path
+
+        assert not sentinel.exists()
+        # The fake script echoed everything it received as argv; the `&&` and
+        # `touch` tokens should appear in its output as literal arguments.
+        assert "&&" in result
+        assert "touch" in result

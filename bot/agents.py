@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -93,16 +94,36 @@ def _load_shell_skills() -> list[ShellToolLocalSkill]:
 async def _shell_executor(request: Any) -> str:
     """Run each shell command from the request and return combined output.
 
-    Honours action.timeout_ms when set, otherwise falls back to SHELL_TIMEOUT.
-    stderr is merged into stdout for simplicity.
+    Two layers of defence keep the bot from running anything other than the
+    ``obsidian`` CLI:
+
+    1. **Allowlist** — after ``shlex.split``, the first token of each command
+       must be exactly ``obsidian``. Anything else is rejected without
+       execution. This blocks attempts to invoke unrelated binaries.
+    2. **No shell** — commands are executed via ``create_subprocess_exec``
+       (not ``_shell``), so shell metacharacters like ``;``, ``&&``, ``|``,
+       ``$()``, and backticks are passed as literal arguments to ``obsidian``
+       instead of being interpreted. This blocks command-chaining injection.
+
+    Honours ``action.timeout_ms`` when set, otherwise falls back to
+    ``SHELL_TIMEOUT``. stderr is merged into stdout for simplicity.
     """
     action = request.data.action
     timeout = (action.timeout_ms / 1000.0) if action.timeout_ms else SHELL_TIMEOUT
 
     outputs: list[str] = []
     for command in action.commands:
-        proc = await asyncio.create_subprocess_shell(
-            command,
+        try:
+            tokens = shlex.split(command)
+        except ValueError as e:
+            outputs.append(f"rejected: cannot parse command ({e}): {command}")
+            continue
+        if not tokens or tokens[0] != "obsidian":
+            outputs.append(f"rejected: only the 'obsidian' CLI is allowed: {command}")
+            continue
+
+        proc = await asyncio.create_subprocess_exec(
+            *tokens,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
