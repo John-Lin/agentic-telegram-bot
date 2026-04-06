@@ -11,10 +11,15 @@ from agents.models.interface import Model
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from agents.models.openai_responses import OpenAIResponsesModel
 
-from bot.agents import DEFAULT_INSTRUCTIONS
 from bot.agents import MAX_TURNS
 from bot.agents import OpenAIAgent
 from bot.agents import _get_model
+
+
+@pytest.fixture
+def _stub_instructions(monkeypatch):
+    """Stub out instructions.md loading for from_dict tests."""
+    monkeypatch.setattr("bot.agents._load_instructions", lambda: "stub instructions")
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +54,7 @@ class TestGetModel:
 class TestPerChatConversations:
     def test_separate_chats_have_independent_history(self):
         """Different chat_ids should maintain separate message histories."""
-        agent = OpenAIAgent(name="test")
+        agent = OpenAIAgent(name="test", instructions="test-prompt")
         agent.append_user_message(chat_id=100, message="hello from chat 100")
         agent.append_user_message(chat_id=200, message="hello from chat 200")
 
@@ -62,7 +67,7 @@ class TestPerChatConversations:
         assert msgs_200[0]["content"] == "hello from chat 200"
 
     def test_same_chat_accumulates_messages(self):
-        agent = OpenAIAgent(name="test")
+        agent = OpenAIAgent(name="test", instructions="test-prompt")
         agent.append_user_message(chat_id=100, message="first")
         agent.append_user_message(chat_id=100, message="second")
 
@@ -72,18 +77,18 @@ class TestPerChatConversations:
         assert msgs[1]["content"] == "second"
 
     def test_unknown_chat_returns_empty(self):
-        agent = OpenAIAgent(name="test")
+        agent = OpenAIAgent(name="test", instructions="test-prompt")
         assert agent.get_messages(chat_id=999) == []
 
     def test_set_messages_replaces_history(self):
-        agent = OpenAIAgent(name="test")
+        agent = OpenAIAgent(name="test", instructions="test-prompt")
         agent.append_user_message(chat_id=100, message="old")
         new_msgs = [{"role": "user", "content": "replaced"}]
         agent.set_messages(chat_id=100, messages=new_msgs)
         assert agent.get_messages(chat_id=100) == new_msgs
 
     def test_set_messages_does_not_affect_other_chats(self):
-        agent = OpenAIAgent(name="test")
+        agent = OpenAIAgent(name="test", instructions="test-prompt")
         agent.append_user_message(chat_id=100, message="chat 100")
         agent.append_user_message(chat_id=200, message="chat 200")
         agent.set_messages(chat_id=100, messages=[])
@@ -92,30 +97,23 @@ class TestPerChatConversations:
 
 
 class TestInstructions:
-    def test_default_instructions_when_none_provided(self):
-        agent = OpenAIAgent(name="test")
-        assert agent.agent.instructions == DEFAULT_INSTRUCTIONS
-
     def test_custom_instructions(self):
         agent = OpenAIAgent(name="test", instructions="Be a HN bot.")
         assert agent.agent.instructions == "Be a HN bot."
 
-    def test_from_dict_reads_instructions(self):
-        config = {
-            "instructions": "Custom prompt here.",
-            "mcpServers": {},
-        }
-        agent = OpenAIAgent.from_dict("test", config)
-        assert agent.agent.instructions == "Custom prompt here."
+    def test_from_dict_loads_instructions_from_file(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "instructions.md").write_text("From file prompt.", encoding="utf-8")
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        assert agent.agent.instructions == "From file prompt."
 
-    def test_from_dict_uses_default_without_instructions(self):
-        config = {
-            "mcpServers": {},
-        }
-        agent = OpenAIAgent.from_dict("test", config)
-        assert agent.agent.instructions == DEFAULT_INSTRUCTIONS
+    def test_from_dict_fails_fast_when_instructions_file_missing(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(FileNotFoundError, match="Instructions file not found"):
+            OpenAIAgent.from_dict("test", {"mcpServers": {}})
 
 
+@pytest.mark.usefixtures("_stub_instructions")
 class TestFromDictMcpServers:
     def test_url_creates_streamable_http_server(self):
         config = {
@@ -172,7 +170,7 @@ class TestHistoryTruncation:
         assert MAX_TURNS == 10
 
     def test_truncate_keeps_recent_turns(self):
-        agent = OpenAIAgent(name="test")
+        agent = OpenAIAgent(name="test", instructions="test-prompt")
         # Simulate 30 turns: each turn is a user msg + assistant msg
         for i in range(30):
             agent.set_messages(
@@ -196,7 +194,7 @@ class TestHistoryTruncation:
         assert user_msgs[-1]["content"] == "user-29"
 
     def test_truncate_preserves_tool_messages_within_turn(self):
-        agent = OpenAIAgent(name="test")
+        agent = OpenAIAgent(name="test", instructions="test-prompt")
         # Build history with tool calls in a turn
         history = []
         for i in range(MAX_TURNS + 2):
@@ -218,7 +216,7 @@ class TestHistoryTruncation:
         assert len(tool_msgs) == 1
 
     def test_no_truncation_when_under_limit(self):
-        agent = OpenAIAgent(name="test")
+        agent = OpenAIAgent(name="test", instructions="test-prompt")
         for i in range(3):
             agent.set_messages(
                 chat_id=100,

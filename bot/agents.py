@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from agents import Agent
@@ -15,17 +16,27 @@ from agents.models.openai_responses import OpenAIResponsesModel
 from agents.tracing import set_tracing_disabled
 from openai import AsyncOpenAI
 
-DEFAULT_INSTRUCTIONS = (
-    "You are a helpful assistant in a Telegram chat. "
-    "When referencing articles, websites, or resources, always include "
-    "the URL as a markdown hyperlink, e.g. [title](https://example.com). "
-    "Keep responses concise and well-structured for mobile reading."
-)
+INSTRUCTIONS_FILE = Path("instructions.md")
 
 MAX_TURNS = 10
 MCP_SESSION_TIMEOUT_SECONDS = 30.0
 
 set_tracing_disabled(True)
+
+
+def _load_instructions() -> str:
+    """Load agent instructions from ``instructions.md`` in the working directory.
+
+    Fails fast with a clear error if the file is missing, so the bot never
+    silently starts up with an empty or stale prompt.
+    """
+    try:
+        return INSTRUCTIONS_FILE.read_text(encoding="utf-8")
+    except FileNotFoundError as e:
+        raise FileNotFoundError(
+            f"Instructions file not found: {INSTRUCTIONS_FILE.resolve()}. "
+            "Create an instructions.md file with the agent's system prompt."
+        ) from e
 
 
 def _get_model() -> OpenAIResponsesModel | OpenAIChatCompletionsModel:
@@ -53,8 +64,8 @@ class OpenAIAgent:
     def __init__(
         self,
         name: str,
+        instructions: str,
         mcp_servers: list | None = None,
-        instructions: str = DEFAULT_INSTRUCTIONS,
     ) -> None:
         self.agent = Agent(
             name=name,
@@ -116,8 +127,8 @@ class OpenAIAgent:
                         },
                     )
                 )
-        instructions = config.get("instructions", DEFAULT_INSTRUCTIONS)
-        return cls(name, mcp_servers, instructions=instructions)
+        instructions = _load_instructions()
+        return cls(name, instructions=instructions, mcp_servers=mcp_servers)
 
     async def connect(self) -> None:
         for mcp_server in self.agent.mcp_servers:

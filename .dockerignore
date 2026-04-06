@@ -8,5 +8,6 @@ __pycache__
 firecrawl_selfhost_servers_config.json
 jira_servers_config.json
 servers_config.json
+instructions.md
 .envrc
 .pre-commit-config.yaml
