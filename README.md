@@ -12,6 +12,7 @@ See also: [agentic-slackbot](https://github.com/John-Lin/agentic-slackbot) — a
 - Supports OpenAI, Azure OpenAI endpoints
 - Per-conversation history with automatic truncation
 - Group reply chain — after `@mention`, anyone can continue by replying
+- Local shell skills — let the agent run shell scripts from `skills/` (opt-in via `SHELL_SKILLS_ENABLED`)
 
 ## Install Dependencies
 
@@ -41,6 +42,9 @@ export TELEGRAM_BOT_TOKEN=""
 # OpenAI API
 export OPENAI_API_KEY=""
 export OPENAI_MODEL="gpt-5.4"
+
+# Shell skills (disabled by default)
+# export SHELL_SKILLS_ENABLED=1
 ```
 
 ## Agent Instructions
@@ -180,6 +184,7 @@ docker run -d \
   -e TELEGRAM_BOT_TOKEN="" \
   -e OPENAI_API_KEY="" \
   -e OPENAI_MODEL="gpt-5.4" \
+  -v /path/to/instructions.md:/app/instructions.md \
   -v /path/to/access.json:/app/access.json \
   agentic-telegram-bot
 ```
@@ -195,20 +200,6 @@ docker run -d \
   -e OPENAI_MODEL="gpt-5.4" \
   -v /path/to/instructions.md:/app/instructions.md \
   -v /path/to/servers_config.json:/app/servers_config.json \
-  -v /path/to/access.json:/app/access.json \
-  agentic-telegram-bot
-```
-
-If you do not use MCP servers, you still need to mount `instructions.md`:
-
-```bash
-docker run -d \
-  --name telegent \
-  -e BOT_USERNAME="@your_bot_username" \
-  -e TELEGRAM_BOT_TOKEN="" \
-  -e OPENAI_API_KEY="" \
-  -e OPENAI_MODEL="gpt-5.4" \
-  -v /path/to/instructions.md:/app/instructions.md \
   -v /path/to/access.json:/app/access.json \
   agentic-telegram-bot
 ```

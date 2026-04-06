@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import create_autospec
 from unittest.mock import patch
 
 import pytest
+from agents import ShellTool
 from agents.mcp import MCPServerStdio
 from agents.mcp import MCPServerStreamableHttp
 from agents.models.interface import Model
@@ -14,6 +16,8 @@ from agents.models.openai_responses import OpenAIResponsesModel
 from bot.agents import MAX_TURNS
 from bot.agents import OpenAIAgent
 from bot.agents import _get_model
+from bot.agents import _parse_skill_description
+from bot.agents import _shell_executor
 
 
 @pytest.fixture
@@ -23,9 +27,12 @@ def _stub_instructions(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _mock_model(monkeypatch):
-    """Prevent tests from constructing a real OpenAI client."""
+def _mock_model(monkeypatch, tmp_path_factory):
+    """Prevent tests from constructing a real OpenAI client and isolate skills."""
     monkeypatch.setattr("bot.agents._get_model", lambda: create_autospec(Model))
+    # Point SKILLS_DIR at an empty directory so tests do not auto-load the
+    # real ./skills/ on disk. Tests that need skills can override this.
+    monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path_factory.mktemp("empty_skills"))
 
 
 class TestGetModel:
@@ -231,3 +238,247 @@ class TestHistoryTruncation:
         msgs = agent.get_messages(chat_id=100)
         user_msgs = [m for m in msgs if m["role"] == "user"]
         assert len(user_msgs) == 3
+
+
+@pytest.mark.usefixtures("_stub_instructions")
+class TestLoadShellSkills:
+    def _make_skill_dir(self, tmp_path):
+        """Create a valid skill directory and return its parent."""
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: A test skill\n---\n")
+        return tmp_path
+
+    def test_disabled_by_default(self, tmp_path, monkeypatch):
+        """Skills exist but SHELL_SKILLS_ENABLED is not set — no ShellTool."""
+        monkeypatch.delenv("SHELL_SKILLS_ENABLED", raising=False)
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", self._make_skill_dir(tmp_path))
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
+        assert len(shell_tools) == 0
+
+    def test_enabled_with_env_var(self, tmp_path, monkeypatch):
+        """SHELL_SKILLS_ENABLED=1 and skills exist — ShellTool is added."""
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", self._make_skill_dir(tmp_path))
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
+        assert len(shell_tools) == 1
+
+    def test_no_shell_tool_when_skills_dir_missing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path / "nonexistent")
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
+        assert len(shell_tools) == 0
+
+    def test_shell_tool_added_when_skill_found(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: A test skill\n---\n")
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path)
+
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tool = next(t for t in agent.agent.tools if isinstance(t, ShellTool))
+        skill = shell_tool.environment["skills"][0]
+        assert skill["name"] == "my-skill"
+        assert skill["description"] == "A test skill"
+        assert skill["path"] == str(skill_dir)
+
+    def test_multiple_skills_all_mounted(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
+        for name in ["skill-a", "skill-b"]:
+            d = tmp_path / name
+            d.mkdir()
+            (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: desc {name}\n---\n")
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path)
+
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tool = next(t for t in agent.agent.tools if isinstance(t, ShellTool))
+        assert len(shell_tool.environment["skills"]) == 2
+
+    def test_directory_without_skill_md_is_skipped(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
+        (tmp_path / "not-a-skill").mkdir()
+        good = tmp_path / "real-skill"
+        good.mkdir()
+        (good / "SKILL.md").write_text("---\nname: real-skill\ndescription: d\n---\n")
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path)
+
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tool = next(t for t in agent.agent.tools if isinstance(t, ShellTool))
+        skills = shell_tool.environment["skills"]
+        assert len(skills) == 1
+        assert skills[0]["name"] == "real-skill"
+
+    def test_mcp_servers_and_shell_skills_coexist(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
+        skill_dir = tmp_path / "s"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n")
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path)
+
+        config = {"mcpServers": {"my-mcp": {"command": "uvx", "args": ["something"]}}}
+        agent = OpenAIAgent.from_dict("test", config)
+        assert len(agent.agent.mcp_servers) == 1
+        shell_tools = [t for t in agent.agent.tools if isinstance(t, ShellTool)]
+        assert len(shell_tools) == 1
+
+    def test_unreadable_utf8_skill_file_is_skipped(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
+        bad = tmp_path / "bad-skill"
+        bad.mkdir()
+        (bad / "SKILL.md").write_bytes(b"\xff\xfe\x00\x00")
+
+        good = tmp_path / "good-skill"
+        good.mkdir()
+        (good / "SKILL.md").write_text("---\nname: good-skill\ndescription: good\n---\n")
+
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path)
+
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tool = next(t for t in agent.agent.tools if isinstance(t, ShellTool))
+        skills = shell_tool.environment["skills"]
+        assert len(skills) == 1
+        assert skills[0]["name"] == "good-skill"
+
+    def test_oserror_reading_skill_file_is_skipped(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHELL_SKILLS_ENABLED", "1")
+        bad = tmp_path / "bad-skill"
+        bad.mkdir()
+        bad_file = bad / "SKILL.md"
+        bad_file.write_text("---\nname: bad\ndescription: bad\n---\n")
+
+        good = tmp_path / "good-skill"
+        good.mkdir()
+        (good / "SKILL.md").write_text("---\nname: good-skill\ndescription: good\n---\n")
+
+        original_read_text = Path.read_text
+
+        def _read_text(self: Path, *args, **kwargs):
+            if self == bad_file:
+                raise OSError("permission denied")
+            return original_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr("bot.agents.SKILLS_DIR", tmp_path)
+        monkeypatch.setattr(Path, "read_text", _read_text)
+
+        agent = OpenAIAgent.from_dict("test", {"mcpServers": {}})
+        shell_tool = next(t for t in agent.agent.tools if isinstance(t, ShellTool))
+        skills = shell_tool.environment["skills"]
+        assert len(skills) == 1
+        assert skills[0]["name"] == "good-skill"
+
+
+class TestParseSkillDescription:
+    def test_unquoted_description(self):
+        content = "---\nname: my-skill\ndescription: A test skill\n---\nBody text."
+        assert _parse_skill_description(content) == "A test skill"
+
+    def test_double_quoted_description(self):
+        content = '---\nname: my-skill\ndescription: "A quoted skill"\n---\n'
+        assert _parse_skill_description(content) == "A quoted skill"
+
+    def test_single_quoted_description(self):
+        content = "---\nname: my-skill\ndescription: 'Single quoted'\n---\n"
+        assert _parse_skill_description(content) == "Single quoted"
+
+    def test_no_frontmatter(self):
+        content = "Just a plain markdown file."
+        assert _parse_skill_description(content) == ""
+
+    def test_no_description_field(self):
+        content = "---\nname: my-skill\n---\nBody."
+        assert _parse_skill_description(content) == ""
+
+    def test_unclosed_frontmatter(self):
+        content = "---\nname: my-skill\ndescription: never closed"
+        assert _parse_skill_description(content) == ""
+
+    def test_empty_description(self):
+        content = "---\nname: my-skill\ndescription:\n---\n"
+        assert _parse_skill_description(content) == ""
+
+    def test_description_with_colon_in_value(self):
+        content = "---\ndescription: Run this: do stuff\n---\n"
+        assert _parse_skill_description(content) == "Run this: do stuff"
+
+
+def _make_shell_request(commands: list[str], timeout_ms: int | None = None):
+    """Build a minimal object matching the ShellCommandRequest interface."""
+    from types import SimpleNamespace
+
+    action = SimpleNamespace(commands=commands, timeout_ms=timeout_ms)
+    data = SimpleNamespace(action=action)
+    return SimpleNamespace(data=data)
+
+
+class TestShellExecutor:
+    @pytest.mark.anyio
+    async def test_single_command_returns_stdout(self):
+        request = _make_shell_request(["echo hello"])
+        result = await _shell_executor(request)
+        assert result.strip() == "hello"
+
+    @pytest.mark.anyio
+    async def test_multiple_commands_combined(self):
+        request = _make_shell_request(["echo first", "echo second"])
+        result = await _shell_executor(request)
+        assert "first" in result
+        assert "second" in result
+        assert result.index("first") < result.index("second")
+
+    @pytest.mark.anyio
+    async def test_stderr_merged_into_stdout(self):
+        request = _make_shell_request(["echo err >&2"])
+        result = await _shell_executor(request)
+        assert result.strip() == "err"
+
+    @pytest.mark.anyio
+    async def test_command_timeout_kills_process(self):
+        request = _make_shell_request(["sleep 30"], timeout_ms=100)
+        result = await _shell_executor(request)
+        assert "timed out" in result.lower()
+
+    @pytest.mark.anyio
+    async def test_nonzero_exit_code_appends_exit_code(self):
+        request = _make_shell_request(["echo failing && exit 1"])
+        result = await _shell_executor(request)
+        assert "failing" in result
+        assert "[exit code: 1]" in result
+
+    @pytest.mark.anyio
+    async def test_zero_exit_code_no_suffix(self):
+        request = _make_shell_request(["echo ok"])
+        result = await _shell_executor(request)
+        assert "exit code" not in result
+
+    @pytest.mark.anyio
+    async def test_timeout_ms_none_uses_default(self):
+        """When timeout_ms is None, SHELL_TIMEOUT is used (command completes fine)."""
+        request = _make_shell_request(["echo ok"], timeout_ms=None)
+        result = await _shell_executor(request)
+        assert result.strip() == "ok"
+
+    @pytest.mark.anyio
+    async def test_timeout_stops_remaining_commands(self):
+        """After a timeout, subsequent commands are not executed."""
+        request = _make_shell_request(["sleep 30", "echo should-not-run"], timeout_ms=100)
+        result = await _shell_executor(request)
+        assert "timed out" in result.lower()
+        assert "should-not-run" not in result
+
+    @pytest.mark.anyio
+    async def test_subprocess_oserror_returns_error_message(self, monkeypatch):
+        """When create_subprocess_shell raises OSError, return error text instead of crashing."""
+        import asyncio as _asyncio
+
+        async def _failing_shell(*args, **kwargs):
+            raise OSError("fork failed")
+
+        monkeypatch.setattr(_asyncio, "create_subprocess_shell", _failing_shell)
+
+        request = _make_shell_request(["echo hello"])
+        result = await _shell_executor(request)
+        assert "fork failed" in result
