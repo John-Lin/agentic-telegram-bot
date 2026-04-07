@@ -12,7 +12,7 @@ See also: [agentic-slackbot](https://github.com/John-Lin/agentic-slackbot) — a
 - Supports OpenAI, Azure OpenAI endpoints
 - Per-conversation history with automatic truncation
 - Group reply chain — after `@mention`, anyone can continue by replying
-- Local shell skills — let the agent run shell scripts from `skills/` (opt-in via `SHELL_SKILLS_ENABLED`)
+- Optional local shell via `ShellTool`, controlled by `SHELL_ENABLED` and `SHELL_SKILLS_DIR`
 
 ## Install Dependencies
 
@@ -43,8 +43,12 @@ export TELEGRAM_BOT_TOKEN=""
 export OPENAI_API_KEY=""
 export OPENAI_MODEL="gpt-5.4"
 
-# Shell skills (disabled by default)
-# export SHELL_SKILLS_ENABLED=1
+# Local shell (disabled by default)
+# export SHELL_ENABLED=1
+# export SHELL_SKILLS_DIR="./skills"  # optional; mount skills alongside the shell
+
+# Optional verbose OpenAI Agents SDK logging
+# export AGENT_VERBOSE_LOG=1
 ```
 
 ## Agent Instructions
@@ -172,6 +176,38 @@ uv run bot access group remove <GROUP_ID>
 ```
 
 Group members do not need to pair individually — access is controlled at the group level.
+
+## Local Shell (Optional)
+
+The bot can expose a local `ShellTool`. This is **disabled by default**. Enable it with:
+
+```
+export SHELL_ENABLED=1
+```
+
+With just `SHELL_ENABLED=1`, the agent gets bare local shell access with no pre-defined skills.
+
+### Shell Skills (Optional)
+
+You can optionally mount a skills directory alongside the shell. Each immediate subdirectory containing a `SKILL.md` file is registered as a skill and exposed to the agent as a hint (skills are advisory metadata — they do **not** sandbox command execution).
+
+```
+export SHELL_ENABLED=1
+export SHELL_SKILLS_DIR="./skills"
+```
+
+`SHELL_SKILLS_DIR` is ignored unless `SHELL_ENABLED` is set. If the directory is missing or contains no valid skills, the bot falls back to a bare shell and logs a warning.
+
+The `SKILL.md` file should have YAML frontmatter with `name` and `description` fields:
+
+```markdown
+---
+name: my-skill
+description: A brief description of what this skill does
+---
+
+Detailed instructions for the agent...
+```
 
 ## Docker
 

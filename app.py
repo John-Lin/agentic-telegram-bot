@@ -6,6 +6,8 @@ import contextlib
 import logging
 import sys
 
+from agents import enable_verbose_stdout_logging
+
 from bot.agents import OpenAIAgent
 from bot.auth import add_group
 from bot.auth import allow_user
@@ -15,15 +17,22 @@ from bot.auth import remove_group
 from bot.auth import remove_user
 from bot.auth import set_dm_policy
 from bot.config import Configuration
+from bot.config import env_flag
 from bot.telegram import TelegramMCPBot
 
 
-async def start_bot() -> None:
-    """Initialize and run the Telegram bot."""
+def _configure_logging() -> None:
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=logging.INFO,
     )
+    if env_flag("AGENT_VERBOSE_LOG"):
+        enable_verbose_stdout_logging()
+
+
+async def start_bot() -> None:
+    """Initialize and run the Telegram bot."""
+    _configure_logging()
     config = Configuration()
 
     server_config = config.load_config("servers_config.json")
