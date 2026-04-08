@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections import deque
 
+from agent_core import OpenAIAgent
 from telegram import Message
 from telegram import Update
 from telegram.constants import ChatAction
@@ -14,7 +15,6 @@ from telegram.ext import ContextTypes
 from telegram.ext import MessageHandler
 from telegram.ext import filters
 
-from .agents import OpenAIAgent
 from .auth import create_pairing_code
 from .auth import get_dm_policy
 from .auth import get_group_config
