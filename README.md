@@ -41,7 +41,6 @@ export TELEGRAM_BOT_TOKEN=""
 
 # OpenAI API
 export OPENAI_API_KEY=""
-export OPENAI_MODEL="gpt-5.4"
 
 # Local shell (disabled by default)
 # export SHELL_ENABLED=1
@@ -67,7 +66,6 @@ If you are using Azure OpenAI (v1 API), set these instead:
 ```
 export OPENAI_API_KEY=""
 export OPENAI_BASE_URL="https://<resource-name>.openai.azure.com/openai/v1/"
-export OPENAI_MODEL="gpt-5.4"
 ```
 
 ## MCP Server Configuration (Optional)
@@ -76,6 +74,7 @@ Create a `servers_config.json` file to add your MCP servers. If this file is not
 
 ```json
 {
+  "model": "gpt-5.4",
   "mcpServers": {
     "my-server": {
       "command": "uvx",
@@ -84,6 +83,8 @@ Create a `servers_config.json` file to add your MCP servers. If this file is not
   }
 }
 ```
+
+`model` is optional and defaults to `gpt-5.4`. Each MCP server also accepts `timeout` (seconds, default `30.0`) and `enabled` (default `true`).
 
 For HTTP-based MCP servers (Streamable HTTP), use `url`:
 
@@ -219,7 +220,6 @@ docker run -d \
   -e BOT_USERNAME="@your_bot_username" \
   -e TELEGRAM_BOT_TOKEN="" \
   -e OPENAI_API_KEY="" \
-  -e OPENAI_MODEL="gpt-5.4" \
   -v /path/to/instructions.md:/app/instructions.md \
   -v /path/to/access.json:/app/access.json \
   agentic-telegram-bot
@@ -233,7 +233,6 @@ docker run -d \
   -e BOT_USERNAME="@your_bot_username" \
   -e TELEGRAM_BOT_TOKEN="" \
   -e OPENAI_API_KEY="" \
-  -e OPENAI_MODEL="gpt-5.4" \
   -v /path/to/instructions.md:/app/instructions.md \
   -v /path/to/servers_config.json:/app/servers_config.json \
   -v /path/to/access.json:/app/access.json \
