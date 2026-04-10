@@ -31,6 +31,7 @@ def _make_update(chat_id: int) -> MagicMock:
     update = MagicMock()
     update.effective_chat.id = chat_id
     update.message.reply_text = AsyncMock()
+    update.message.reply_to_message = None
     return update
 
 
@@ -88,6 +89,8 @@ def _make_group_update(
     if reply_to_message_id is not None:
         update.message.reply_to_message = MagicMock()
         update.message.reply_to_message.message_id = reply_to_message_id
+        update.message.reply_to_message.text = None
+        update.message.reply_to_message.from_user = None
     else:
         update.message.reply_to_message = None
     return update
@@ -347,6 +350,75 @@ class TestReplyChain:
             await group_bot.handle_group(update, MagicMock())
 
         group_bot.agent.run.assert_not_called()
+
+
+class TestReplyContext:
+    @pytest.fixture
+    def reply_bot(self):
+        agent = MagicMock()
+        agent.run = AsyncMock(return_value="ok")
+        bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", openai_agent=agent)
+        return bot
+
+    @pytest.mark.anyio
+    async def test_no_reply_passes_content_unchanged(self, reply_bot):
+        update = _make_update(chat_id=42)
+        update.message.text = "hello"
+        update.message.chat.send_action = AsyncMock()
+
+        await reply_bot._respond(update)
+
+        reply_bot.agent.run.assert_called_once_with(42, "hello")
+
+    @pytest.mark.anyio
+    async def test_reply_with_text_prepends_context(self, reply_bot):
+        update = _make_update(chat_id=42)
+        update.message.text = "what do you think?"
+        update.message.chat.send_action = AsyncMock()
+
+        reply_msg = MagicMock()
+        reply_msg.text = "今天天氣如何"
+        reply_msg.from_user = MagicMock()
+        reply_msg.from_user.full_name = "Alice"
+        update.message.reply_to_message = reply_msg
+
+        await reply_bot._respond(update)
+
+        expected = "[Replying to Alice: 今天天氣如何]\nwhat do you think?"
+        reply_bot.agent.run.assert_called_once_with(42, expected)
+
+    @pytest.mark.anyio
+    async def test_reply_without_text_passes_content_unchanged(self, reply_bot):
+        """Reply to a photo/sticker (no text) should not prepend context."""
+        update = _make_update(chat_id=42)
+        update.message.text = "nice pic"
+        update.message.chat.send_action = AsyncMock()
+
+        reply_msg = MagicMock()
+        reply_msg.text = None
+        reply_msg.from_user = MagicMock()
+        update.message.reply_to_message = reply_msg
+
+        await reply_bot._respond(update)
+
+        reply_bot.agent.run.assert_called_once_with(42, "nice pic")
+
+    @pytest.mark.anyio
+    async def test_reply_without_from_user_uses_unknown(self, reply_bot):
+        """Reply from a channel post (from_user is None) should still include text."""
+        update = _make_update(chat_id=42)
+        update.message.text = "interesting"
+        update.message.chat.send_action = AsyncMock()
+
+        reply_msg = MagicMock()
+        reply_msg.text = "channel announcement"
+        reply_msg.from_user = None
+        update.message.reply_to_message = reply_msg
+
+        await reply_bot._respond(update)
+
+        expected = "[Replying to Unknown: channel announcement]\ninteresting"
+        reply_bot.agent.run.assert_called_once_with(42, expected)
 
 
 @pytest.mark.anyio

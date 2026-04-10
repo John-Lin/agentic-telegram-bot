@@ -167,14 +167,22 @@ class TelegramMCPBot:
         except asyncio.CancelledError:
             pass
 
+    def _build_content(self, message: Message) -> str:
+        reply = message.reply_to_message
+        if reply is None or not reply.text:
+            return message.text
+        sender = reply.from_user.full_name if reply.from_user else "Unknown"
+        return f"[Replying to {sender}: {reply.text}]\n{message.text}"
+
     async def _respond(self, update: Update) -> Message | None:
         """Run agent and reply. Returns the sent Message object, or None on failure."""
         assert update.message is not None and update.message.text is not None
         assert update.effective_chat is not None
+        content = self._build_content(update.message)
         await update.message.chat.send_action(ChatAction.TYPING)
         typing_task = asyncio.create_task(self._send_typing_loop(update))
         try:
-            asst_text = await self.agent.run(update.effective_chat.id, update.message.text)
+            asst_text = await self.agent.run(update.effective_chat.id, content)
             html_text = markdown_to_telegram_html(asst_text)
             try:
                 return await update.message.reply_text(text=html_text, parse_mode=ParseMode.HTML)
