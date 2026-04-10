@@ -142,11 +142,13 @@ class TestGroupAccess:
     def test_add_group_no_mention(self):
         add_group(-1001234, require_mention=False)
         config = get_group_config(-1001234)
+        assert config is not None
         assert config["requireMention"] is False
 
     def test_add_group_with_allowed_members(self):
         add_group(-1001234, allowed_members=[111, 222])
         config = get_group_config(-1001234)
+        assert config is not None
         assert config["allowFrom"] == ["111", "222"]
 
     def test_get_group_config_unknown_group(self):
@@ -176,6 +178,7 @@ class TestGroupAccess:
         add_group(-1001234)
         add_group(-1001234, require_mention=False, allowed_members=[111])
         config = get_group_config(-1001234)
+        assert config is not None
         assert config["requireMention"] is False
         assert config["allowFrom"] == ["111"]
 

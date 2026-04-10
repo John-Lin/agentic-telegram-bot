@@ -168,6 +168,7 @@ class TelegramMCPBot:
             pass
 
     def _build_content(self, message: Message) -> str:
+        assert message.text is not None
         reply = message.reply_to_message
         if reply is None or not reply.text:
             return message.text

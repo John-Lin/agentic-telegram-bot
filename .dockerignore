@@ -1,5 +1,5 @@
 .git
-.mypy_cache
+.ty_cache
 .pytest_cache
 .venv
 .ruff_cache
