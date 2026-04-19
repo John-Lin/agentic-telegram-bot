@@ -1,0 +1,16 @@
+services:
+  bot:
+    build: .
+    image: agentic-telegram-bot
+    container_name: agentic-telegram-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SESSION_DB_PATH: /app/data/sessions.db
+    volumes:
+      - ./instructions.md:/app/instructions.md
+      - ./agent_config.json:/app/agent_config.json
+      - ./access.json:/app/access.json
+      - ./data:/app/data
+      - ./claude-home:/app/claude-home
+      - ./skills:/app/.claude/skills

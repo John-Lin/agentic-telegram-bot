@@ -1,18 +1,23 @@
 # agentic-telegram-bot
 
-A simple Telegram bot that uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) to interact with [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers.
+A Telegram bot powered by [agent-core](https://github.com/John-Lin/agent-core) that interacts with [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers. Supports two interchangeable providers:
 
-See also: [agentic-slackbot](https://github.com/John-Lin/agentic-slackbot) — a similar demo bot for Slack.
+- **OpenAI** (default) — via [OpenAI Agents SDK](https://github.com/openai/openai-agents-python); works with OpenAI and Azure OpenAI v1.
+- **Claude** — via [claude-agent-sdk](https://pypi.org/project/claude-agent-sdk/).
+
+Switch providers by setting `"provider"` in `agent_config.json`.
+
+See also: [agentic-slackbot](https://github.com/John-Lin/agentic-slackbot) and [agentic-discord-bot](https://github.com/John-Lin/agentic-discord-bot) — similar bots for Slack and Discord.
 
 ## Features
 
 - Private chat and group chat support
 - Configurable DM policy (pairing / allowlist / disabled)
-- Connects to any MCP server via `servers_config.json`
-- Supports OpenAI, Azure OpenAI endpoints
 - Per-conversation history with automatic truncation
 - Group reply chain — after `@mention`, anyone can continue by replying
-- Optional local shell via `ShellTool`, controlled by `SHELL_ENABLED` and `SHELL_SKILLS_DIR`
+- Connects to any MCP server via `agent_config.json`
+- Optional local shell: `ShellTool` (OpenAI, via `provider.shell`) or `Bash`/`Write`/`Edit`/… (Claude, via `provider.allowedTools`). Read-only built-ins (`Read`, `Glob`, `Grep`) are always on for Claude.
+- Supports OpenAI, Azure OpenAI v1, and Anthropic Claude
 
 ## Install Dependencies
 
@@ -28,87 +33,129 @@ uv sync
    - Use the command `/setprivacy` in the BotFather chat.
    - Select your bot.
    - Choose "Disable" to allow the bot to receive all messages in groups.
-4. Set the bot token and username in the `.envrc` or `.env` file.
+4. Set the bot token and username in the `.env` file.
 
 ## Environment Variables
 
-Create a `.envrc` or `.env` file in the root directory:
+Create a `.env` file in the root directory. Set the key(s) for the provider you plan to use:
 
 ```
 # Telegram bot
-export BOT_USERNAME="@your_bot_username"
-export TELEGRAM_BOT_TOKEN=""
+BOT_USERNAME="@your_bot_username"
+TELEGRAM_BOT_TOKEN=""
 
-# OpenAI API
-export OPENAI_API_KEY=""
+# OpenAI provider (default)
+OPENAI_API_KEY=""
 
-# Local shell (disabled by default)
-# export SHELL_ENABLED=1
-# export SHELL_SKILLS_DIR="./skills"  # optional; mount skills alongside the shell
+# Claude provider
+# ANTHROPIC_API_KEY=""
 
-# Optional verbose OpenAI Agents SDK logging
-# export AGENT_VERBOSE_LOG=1
+# Optional: override SQLite path for session storage (in-memory by default)
+# SESSION_DB_PATH="./sessions.db"
+
+# Optional: override the path to the instructions file (default ./instructions.md)
+# AGENT_INSTRUCTIONS_PATH="./instructions.md"
+
+# Optional verbose OpenAI Agents SDK logging (OpenAI only)
+# AGENT_VERBOSE_LOG=1
+```
+
+If you are using Azure OpenAI (v1 API):
+
+```
+BOT_USERNAME="@your_bot_username"
+TELEGRAM_BOT_TOKEN=""
+OPENAI_API_KEY=""
+OPENAI_BASE_URL="https://<resource-name>.openai.azure.com/openai/v1/"
 ```
 
 ## Agent Instructions
 
-The bot loads its system prompt from `instructions.md` in the project root.
-If the file is missing, the bot fails fast at startup.
+Create an `instructions.md` file in the project root with the agent system prompt:
 
-You can copy `instructions.md.example` as a starting point:
-
-```bash
-cp instructions.md.example instructions.md
+```markdown
+You are a helpful financial assistant. Help users look up stock data,
+news, and market information. Always include ticker symbols.
+Respond in the user's language. Keep responses concise.
 ```
 
-If you are using Azure OpenAI (v1 API), set these instead:
+An example is provided in `instructions.md.example`. The bot will fail to start if this file is missing.
 
-```
-export OPENAI_API_KEY=""
-export OPENAI_BASE_URL="https://<resource-name>.openai.azure.com/openai/v1/"
-```
+## Provider & MCP Server Configuration (Optional)
 
-## MCP Server Configuration (Optional)
+Create an `agent_config.json` to choose a provider and connect MCP servers. If the file is absent, the bot starts with the default OpenAI provider and no tools.
 
-Create a `servers_config.json` file to add your MCP servers. If this file is not provided, the bot starts with no MCP servers configured.
+`provider` is a tagged union keyed by `type` (`"openai"` or `"anthropic"`). `mcp` uses an opencode-style schema keyed by server name, with `type: "local" | "remote"`.
+
+### OpenAI provider (default)
 
 ```json
 {
-  "model": "gpt-5.4",
-  "mcpServers": {
+  "provider": {
+    "type": "openai",
+    "model": "gpt-5.4",
+    "apiType": "responses",
+    "historyTurns": 10
+  },
+  "mcp": {
     "my-server": {
-      "command": "uvx",
-      "args": ["my-mcp-server"]
+      "type": "local",
+      "command": ["uvx", "my-mcp-server"]
     }
   }
 }
 ```
 
-`model` is optional and defaults to `gpt-5.4`. Each MCP server also accepts `timeout` (seconds, default `30.0`) and `enabled` (default `true`).
+All `provider` fields are optional (`model` defaults to `gpt-5.4`, `apiType` to `"responses"`, `historyTurns` to `10`). Each MCP entry also accepts `timeout` (seconds, default `30.0`) and `enabled` (default `true`).
 
-For HTTP-based MCP servers (Streamable HTTP), use `url`:
+### Claude provider
 
 ```json
 {
-  "mcpServers": {
+  "provider": {
+    "type": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "allowedTools": ["WebFetch"]
+  },
+  "mcp": {
+    "my-stdio": {
+      "type": "local",
+      "command": ["python", "-m", "srv"],
+      "environment": {"FOO": "bar"}
+    },
+    "my-http": {
+      "type": "remote",
+      "url": "https://example.com/mcp",
+      "headers": {"Authorization": "Bearer x"}
+    }
+  }
+}
+```
+
+Requires `ANTHROPIC_API_KEY`. Read-only built-ins (`Read`, `Glob`, `Grep`) are always on; `allowedTools` extends that set with any tool that can mutate files or run commands (`Bash`, `Write`, `Edit`, `WebFetch`, …). Tool names are case-sensitive and validated by the SDK — an unrecognized name is silently dropped. Billing/rate-limit/`error_max_turns` errors are surfaced to the chat as a readable message via `AgentError`.
+
+### Remote (HTTP) MCP servers
+
+```json
+{
+  "mcp": {
     "my-server": {
+      "type": "remote",
       "url": "https://mcp.example.com/mcp",
-      "headers": {
-        "Accept": "application/json, text/event-stream"
-      }
+      "headers": {"Accept": "application/json, text/event-stream"}
     }
   }
 }
 ```
 
-For local MCP servers, use `uv --directory`:
+### Local MCP servers (via `uv --directory`)
 
 ```json
 {
-  "mcpServers": {
+  "mcp": {
     "my-server": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/my-server", "run", "my-entrypoint"]
+      "type": "local",
+      "command": ["uv", "--directory", "/path/to/my-server", "run", "my-entrypoint"]
     }
   }
 }
@@ -178,26 +225,48 @@ uv run bot access group remove <GROUP_ID>
 
 Group members do not need to pair individually — access is controlled at the group level.
 
+## Conversation History
+
+Each chat maintains its own conversation history. Replying to the bot's message continues the same conversation via the group reply chain.
+
+OpenAI history length is controlled by `provider.historyTurns` in `agent_config.json` (default `10`). Claude history is managed on disk by `claude-agent-sdk` and resumed across restarts via a `chat_id -> session_id` mapping in SQLite (`SESSION_DB_PATH`).
+
 ## Local Shell (Optional)
 
-The bot can expose a local `ShellTool`. This is **disabled by default**. Enable it with:
+Local shell tools are **disabled by default** and are configured in `agent_config.json` per provider.
 
+### OpenAI — `provider.shell`
+
+```json
+{
+  "provider": {
+    "type": "openai",
+    "shell": {
+      "enabled": true,
+      "skillsDir": "./skills"
+    }
+  }
+}
 ```
-export SHELL_ENABLED=1
+
+`provider.shell.enabled` must be a bool (strings are rejected). `provider.shell.skillsDir` is optional and mounts a skills directory alongside the `ShellTool`.
+
+### Claude — `provider.allowedTools`
+
+Read-only built-ins (`Read`, `Glob`, `Grep`) are always on. Add mutating or exec-capable tools explicitly:
+
+```json
+{
+  "provider": {
+    "type": "anthropic",
+    "allowedTools": ["Bash", "Write", "Edit", "WebFetch"]
+  }
+}
 ```
 
-With just `SHELL_ENABLED=1`, the agent gets bare local shell access with no pre-defined skills.
+### Shell Skills (OpenAI only)
 
-### Shell Skills (Optional)
-
-You can optionally mount a skills directory alongside the shell. Each immediate subdirectory containing a `SKILL.md` file is registered as a skill and exposed to the agent as a hint (skills are advisory metadata — they do **not** sandbox command execution).
-
-```
-export SHELL_ENABLED=1
-export SHELL_SKILLS_DIR="./skills"
-```
-
-`SHELL_SKILLS_DIR` is ignored unless `SHELL_ENABLED` is set. If the directory is missing or contains no valid skills, the bot falls back to a bare shell and logs a warning.
+Each immediate subdirectory of `skillsDir` containing a `SKILL.md` file is registered as a skill and exposed to the agent as a hint (skills are advisory metadata — they do **not** sandbox command execution). If the directory is missing or contains no valid skills, the bot falls back to a bare shell and logs a warning.
 
 The `SKILL.md` file should have YAML frontmatter with `name` and `description` fields:
 
@@ -215,26 +284,52 @@ Detailed instructions for the agent...
 ```bash
 docker build -t agentic-telegram-bot .
 
+# OpenAI provider
 docker run -d \
-  --name telegent \
+  --name agentic-telegram-bot \
   -e BOT_USERNAME="@your_bot_username" \
   -e TELEGRAM_BOT_TOKEN="" \
   -e OPENAI_API_KEY="" \
   -v /path/to/instructions.md:/app/instructions.md \
+  -v /path/to/access.json:/app/access.json \
+  agentic-telegram-bot
+
+# Claude provider (agent_config.json must set "provider": {"type": "anthropic"})
+docker run -d \
+  --name agentic-telegram-bot \
+  -e BOT_USERNAME="@your_bot_username" \
+  -e TELEGRAM_BOT_TOKEN="" \
+  -e ANTHROPIC_API_KEY="" \
+  -v /path/to/instructions.md:/app/instructions.md \
+  -v /path/to/agent_config.json:/app/agent_config.json \
   -v /path/to/access.json:/app/access.json \
   agentic-telegram-bot
 ```
 
-To use MCP servers, mount your config file:
+To use MCP servers with OpenAI, also mount the config:
 
 ```bash
 docker run -d \
-  --name telegent \
+  --name agentic-telegram-bot \
   -e BOT_USERNAME="@your_bot_username" \
   -e TELEGRAM_BOT_TOKEN="" \
   -e OPENAI_API_KEY="" \
   -v /path/to/instructions.md:/app/instructions.md \
-  -v /path/to/servers_config.json:/app/servers_config.json \
+  -v /path/to/agent_config.json:/app/agent_config.json \
   -v /path/to/access.json:/app/access.json \
   agentic-telegram-bot
+```
+
+### Docker Compose
+
+A `docker-compose.yml` and `run.sh` are provided for convenience. Both mount `instructions.md`, `agent_config.json`, `access.json`, persist sessions to `./data`, and mount `./skills` as the agent skills directory.
+
+```bash
+docker compose up -d --build
+```
+
+Or run the container directly:
+
+```bash
+./run.sh
 ```

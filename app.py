@@ -6,7 +6,7 @@ import contextlib
 import logging
 import sys
 
-from agent_core import OpenAIAgent
+from agent_core import build_agent
 from agents import enable_verbose_stdout_logging
 
 from bot.auth import add_group
@@ -35,13 +35,13 @@ async def start_bot() -> None:
     _configure_logging()
     config = Configuration()
 
-    server_config = config.load_config("servers_config.json")
-    openai_agent = OpenAIAgent.from_dict("Telegram Bot Agent", server_config)
+    agent_config = config.load_config("agent_config.json")
+    agent = build_agent("Telegram Bot Agent", agent_config)
 
     tg_bot = TelegramMCPBot(
         config.telegram_bot_token,
         config.bot_username,
-        openai_agent,
+        agent,
     )
 
     try:
@@ -51,10 +51,10 @@ async def start_bot() -> None:
     except (KeyboardInterrupt, asyncio.CancelledError):
         logging.info("Shutting down...")
     except Exception as e:
-        logging.error(f"Error: {e}")
+        logging.error(f"Error: {e}", exc_info=True)
     finally:
         await tg_bot.cleanup()
-        await openai_agent.cleanup()
+        await agent.cleanup()
 
 
 def cmd_pair(args: argparse.Namespace) -> None:

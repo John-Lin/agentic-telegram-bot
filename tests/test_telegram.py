@@ -15,7 +15,7 @@ from bot.telegram import TelegramMCPBot
 @pytest.fixture
 def bot():
     agent = MagicMock()
-    return TelegramMCPBot(token="fake:token", bot_username="@testbot", openai_agent=agent)
+    return TelegramMCPBot(token="fake:token", bot_username="@testbot", agent=agent)
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def respond_bot():
     """Bot with a mock agent that has a controllable run method."""
     agent = MagicMock()
     agent.run = AsyncMock(return_value="hello")
-    bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", openai_agent=agent)
+    bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", agent=agent)
     return bot
 
 
@@ -103,7 +103,7 @@ class TestHandleGroupAllowFrom:
     def group_bot(self):
         agent = MagicMock()
         agent.run = AsyncMock(return_value="response")
-        bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", openai_agent=agent)
+        bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", agent=agent)
         bot.TYPING_INTERVAL_SECONDS = 100  # prevent loop from firing
         return bot
 
@@ -235,7 +235,7 @@ class TestReplyChain:
     def group_bot(self):
         agent = MagicMock()
         agent.run = AsyncMock(return_value="response")
-        bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", openai_agent=agent)
+        bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", agent=agent)
         bot.TYPING_INTERVAL_SECONDS = 100
         return bot
 
@@ -357,7 +357,7 @@ class TestReplyContext:
     def reply_bot(self):
         agent = MagicMock()
         agent.run = AsyncMock(return_value="ok")
-        bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", openai_agent=agent)
+        bot = TelegramMCPBot(token="fake:token", bot_username="@testbot", agent=agent)
         return bot
 
     @pytest.mark.anyio
