@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "agent-core @ git+https://github.com/John-Lin/agent-core.git@main",
+    "agent-core",
     "mistune-telegram>=0.5.0",
     "openai-agents>=0.13.0",
     "python-dotenv>=1.1.0",
@@ -66,3 +66,6 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["bot"]
+
+[tool.uv.sources]
+agent-core = { git = "https://github.com/John-Lin/agent-core.git", rev = "main" }

@@ -9,7 +9,14 @@ wheels/
 # Virtual environments
 .venv
 .envrc
-servers_config.json
+agent_config.json
 instructions.md
 access.json
+access.json.lock
 .access.pending.json
+.coverage
+logs/
+data/
+claude-home/
+.claude/
+.private-journal/

@@ -4,7 +4,8 @@ import asyncio
 import logging
 from collections import deque
 
-from agent_core import OpenAIAgent
+from agent_core import AgentError
+from agent_core import AIAgent
 from telegram import Message
 from telegram import Update
 from telegram.constants import ChatAction
@@ -25,7 +26,7 @@ MAX_REPLY_CHAIN_IDS = 20
 
 
 class TelegramMCPBot:
-    def __init__(self, token: str | None, bot_username: str | None, openai_agent: OpenAIAgent) -> None:
+    def __init__(self, token: str | None, bot_username: str | None, agent: AIAgent) -> None:
         if bot_username is None:
             raise ValueError("BOT_USERNAME is not set")
 
@@ -33,7 +34,7 @@ class TelegramMCPBot:
             raise ValueError("TELEGRAM_BOT_TOKEN is not set")
 
         self.bot_username = bot_username
-        self.agent = openai_agent
+        self.agent = agent
         self.application = Application.builder().token(token).build()
         self._reply_chains: dict[int, deque[int]] = {}
 
@@ -183,16 +184,28 @@ class TelegramMCPBot:
         await update.message.chat.send_action(ChatAction.TYPING)
         typing_task = asyncio.create_task(self._send_typing_loop(update))
         try:
-            asst_text = await self.agent.run(update.effective_chat.id, content)
+            try:
+                asst_text = await self.agent.run(update.effective_chat.id, content)
+            except AgentError as e:
+                logging.error(
+                    "Agent error (provider=%s, subtype=%s, session=%s): %s",
+                    e.provider,
+                    e.subtype,
+                    e.session_id,
+                    e,
+                )
+                await update.message.reply_text(f"Agent error: {e}")
+                return None
+            except Exception as e:
+                logging.error(f"Error processing message: {e}", exc_info=True)
+                await update.message.reply_text("I'm sorry, I encountered an error processing your request.")
+                return None
+
             html_text = markdown_to_telegram_html(asst_text)
             try:
                 return await update.message.reply_text(text=html_text, parse_mode=ParseMode.HTML)
             except Exception:
                 logging.warning("Failed to send HTML-formatted message, falling back to plain text")
                 return await update.message.reply_text(text=asst_text)
-        except Exception as e:
-            logging.error(f"Error processing message: {e}", exc_info=True)
-            await update.message.reply_text("I'm sorry, I encountered an error processing your request.")
-            return None
         finally:
             typing_task.cancel()

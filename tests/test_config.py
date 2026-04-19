@@ -44,15 +44,18 @@ class TestConfiguration:
 
 class TestLoadConfig:
     def test_loads_valid_json(self, tmp_path):
-        config_file = tmp_path / "config.json"
-        config_data = {"mcpServers": {"test": {"command": "echo", "args": []}}}
+        config_file = tmp_path / "agent_config.json"
+        config_data = {
+            "provider": {"type": "openai"},
+            "mcp": {"srv": {"type": "local", "command": ["uvx", "tool"]}},
+        }
         config_file.write_text(json.dumps(config_data))
         result = Configuration.load_config(str(config_file))
         assert result == config_data
 
     def test_returns_default_on_missing_file(self):
         result = Configuration.load_config("/nonexistent/config.json")
-        assert result == {"mcpServers": {}}
+        assert result == {"mcp": {}}
 
     def test_raises_on_invalid_json(self, tmp_path):
         config_file = tmp_path / "bad.json"

@@ -1,0 +1,11 @@
+{
+  "provider": {
+    "type": "openai"
+  },
+  "mcp": {
+    "yfmcp": {
+      "type": "local",
+      "command": ["uvx", "yfmcp"]
+    }
+  }
+}

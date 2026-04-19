@@ -3,7 +3,6 @@ import logging
 import os
 from typing import Any
 
-from agent_core.env import env_flag
 from dotenv import find_dotenv
 from dotenv import load_dotenv
 
@@ -11,12 +10,26 @@ __all__ = ["Configuration", "env_flag"]
 
 logger = logging.getLogger(__name__)
 
+_FALSY = {"", "0", "false", "no", "off"}
+
+
+def env_flag(name: str) -> bool:
+    """Return True when env var ``name`` is set to a non-falsy value.
+
+    Matches the semantics previously provided by ``agent_core.env.env_flag``
+    so local callers (e.g. ``AGENT_VERBOSE_LOG``) keep working after the
+    upstream module was removed.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return False
+    return raw.strip().lower() not in _FALSY
+
 
 class Configuration:
-    """Manages configuration and environment variables for the MCP Telegram bot."""
+    """Manages configuration and environment variables for the Telegram bot."""
 
     def __init__(self) -> None:
-        """Initialize configuration with environment variables."""
         self.load_env()
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -24,23 +37,15 @@ class Configuration:
 
     @staticmethod
     def load_env() -> None:
-        """Load environment variables from .env file."""
         load_dotenv(find_dotenv())
 
-    _DEFAULT_CONFIG: dict[str, Any] = {"mcpServers": {}}
+    _DEFAULT_CONFIG: dict[str, Any] = {"mcp": {}}
 
     @staticmethod
     def load_config(file_path: str) -> dict[str, Any]:
-        """Load server configuration from JSON file.
+        """Load agent configuration from JSON file.
 
-        Returns a default empty config when the file does not exist,
-        allowing the application to start without a config file.
-
-        Args:
-            file_path: Path to the JSON configuration file.
-
-        Returns:
-            Dict containing server configuration.
+        Returns a default empty config when the file does not exist.
 
         Raises:
             JSONDecodeError: If configuration file is invalid JSON.
